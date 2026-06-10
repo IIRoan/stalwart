@@ -1,0 +1,22 @@
+# Run on your VPS: frps -c frps.toml
+# Open TCP 7000 (control) in the VPS firewall for Railway outbound connections only.
+
+bindAddr = "0.0.0.0"
+bindPort = 7000
+
+# Tunnel endpoints are only reachable from localhost; HAProxy connects locally.
+proxyBindAddr = "127.0.0.1"
+
+[auth]
+method = "token"
+token = "CHANGE_ME_STRONG_TOKEN"
+
+# Only allow the ports frpc registers.
+allowPorts = [
+  { start = 10025, end = 10025 },
+  { start = 10465, end = 10465 },
+  { start = 10587, end = 10587 },
+  { start = 10993, end = 10993 },
+  { start = 10443, end = 10443 },
+  { start = 18080, end = 18080 },
+]
