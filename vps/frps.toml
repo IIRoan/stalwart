@@ -9,14 +9,29 @@ proxyBindAddr = "127.0.0.1"
 
 [auth]
 method = "token"
-token = "CHANGE_ME_STRONG_TOKEN"
+token = "cf13775d89f50d978b5f82c13330aa866d064fef0143593c6afb82b2256b4c6b"
 
 # Only allow the ports frpc registers.
-allowPorts = [
-  { start = 10025, end = 10025 },
-  { start = 10465, end = 10465 },
-  { start = 10587, end = 10587 },
-  { start = 10993, end = 10993 },
-  { start = 10443, end = 10443 },
-  { start = 18080, end = 18080 },
-]
+[[allowPorts]]
+start = 10025
+end = 10025
+
+[[allowPorts]]
+start = 10465
+end = 10465
+
+[[allowPorts]]
+start = 10587
+end = 10587
+
+[[allowPorts]]
+start = 10993
+end = 10993
+
+[[allowPorts]]
+start = 10443
+end = 10443
+
+[[allowPorts]]
+start = 18080
+end = 18080
