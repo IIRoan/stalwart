@@ -168,6 +168,29 @@ EOF
 	fi
 }
 
+start_stalwart() {
+	echo "Starting Stalwart..." >&2
+	/usr/local/bin/stalwart --config /etc/stalwart/config.json &
+	STALWART_PID=$!
+
+	# Wait for management listener to be ready (up to 60s)
+	for i in $(seq 1 60); do
+		if curl -fsS http://127.0.0.1:8080/healthz/live >/dev/null 2>&1; then
+			echo "Stalwart management listener ready on :8080." >&2
+			return 0
+		fi
+		if ! kill -0 "$STALWART_PID" 2>/dev/null; then
+			echo "error: Stalwart exited before becoming ready." >&2
+			exit 1
+		fi
+		sleep 1
+	done
+	echo "error: Stalwart did not become ready within 60 seconds." >&2
+	exit 1
+}
+
+start_stalwart
 start_frpc
 
-exec /usr/local/bin/stalwart --config /etc/stalwart/config.json
+# Keep the script alive as long as Stalwart is running
+wait "$STALWART_PID"
