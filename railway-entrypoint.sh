@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+mkdir -p /etc/stalwart
+
 cat > /etc/stalwart/config.json <<EOF
 {
   "@type": "PostgreSql",
@@ -15,8 +17,7 @@ cat > /etc/stalwart/config.json <<EOF
   "useTls": false,
   "allowInvalidCerts": false,
   "poolMaxConnections": 10,
-  "poolRecyclingMethod": "fast",
-  "timeout": "15s"
+  "poolRecyclingMethod": "fast"
 }
 EOF
 
