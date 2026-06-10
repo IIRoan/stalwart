@@ -12,7 +12,7 @@ cat > /etc/stalwart/config.json <<EOF
   "authUsername": "${PGUSER}",
   "authSecret": {
     "@type": "EnvironmentVariable",
-    "id": "PGPASSWORD"
+    "variableName": "PGPASSWORD"
   },
   "useTls": false,
   "allowInvalidCerts": false,
