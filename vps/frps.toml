@@ -17,21 +17,45 @@ start = 10025
 end = 10025
 
 [[allowPorts]]
+start = 11025
+end = 11025
+
+[[allowPorts]]
 start = 10465
 end = 10465
+
+[[allowPorts]]
+start = 11465
+end = 11465
 
 [[allowPorts]]
 start = 10587
 end = 10587
 
 [[allowPorts]]
+start = 11587
+end = 11587
+
+[[allowPorts]]
 start = 10993
 end = 10993
+
+[[allowPorts]]
+start = 11993
+end = 11993
 
 [[allowPorts]]
 start = 10443
 end = 10443
 
 [[allowPorts]]
+start = 11443
+end = 11443
+
+[[allowPorts]]
 start = 18080
 end = 18080
+
+[[allowPorts]]
+start = 19080
+end = 19080

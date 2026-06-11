@@ -125,6 +125,32 @@ build_frpc_config() {
 	FRPC_CONFIG="${FRPC_CONFIG:-/tmp/frpc.toml}"
 	FRPC_ENABLE_SUBMISSION_PROXY="${FRPC_ENABLE_SUBMISSION_PROXY:-false}"
 	FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
+	FRPC_SLOT="${FRPC_SLOT:-blue}"
+
+	case "$FRPC_SLOT" in
+		blue)
+			FRPC_PROXY_SUFFIX="blue"
+			FRPC_SMTP_REMOTE_PORT=10025
+			FRPC_SUBMISSIONS_REMOTE_PORT=10465
+			FRPC_SUBMISSION_REMOTE_PORT=10587
+			FRPC_IMAPS_REMOTE_PORT=10993
+			FRPC_HTTPS_REMOTE_PORT=10443
+			FRPC_HTTP_ADMIN_REMOTE_PORT=18080
+			;;
+		green)
+			FRPC_PROXY_SUFFIX="green"
+			FRPC_SMTP_REMOTE_PORT=11025
+			FRPC_SUBMISSIONS_REMOTE_PORT=11465
+			FRPC_SUBMISSION_REMOTE_PORT=11587
+			FRPC_IMAPS_REMOTE_PORT=11993
+			FRPC_HTTPS_REMOTE_PORT=11443
+			FRPC_HTTP_ADMIN_REMOTE_PORT=19080
+			;;
+		*)
+			log error "FRPC_SLOT must be blue or green, got: ${FRPC_SLOT}"
+			exit 1
+			;;
+	esac
 
 	cat > "$FRPC_CONFIG" <<EOF
 serverAddr = "${FRPS_ADDR}"
@@ -139,22 +165,22 @@ EOF
 		cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
-name = "smtp"
+name = "smtp-${FRPC_PROXY_SUFFIX}"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 25
-remotePort = 10025
+remotePort = ${FRPC_SMTP_REMOTE_PORT}
 EOF
 
 		if [ "${FRPC_ENABLE_SMTPS_PROXY:-false}" = "true" ]; then
 			cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
-name = "submissions"
+name = "submissions-${FRPC_PROXY_SUFFIX}"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 465
-remotePort = 10465
+remotePort = ${FRPC_SUBMISSIONS_REMOTE_PORT}
 EOF
 		else
 			log info "Skipping SMTPS proxy on port 465."
@@ -164,11 +190,11 @@ EOF
 			cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
-name = "imaps"
+name = "imaps-${FRPC_PROXY_SUFFIX}"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 993
-remotePort = 10993
+remotePort = ${FRPC_IMAPS_REMOTE_PORT}
 EOF
 		else
 			log info "Skipping IMAPS proxy on port 993."
@@ -178,11 +204,11 @@ EOF
 			cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
-name = "submission"
+name = "submission-${FRPC_PROXY_SUFFIX}"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 587
-remotePort = 10587
+remotePort = ${FRPC_SUBMISSION_REMOTE_PORT}
 EOF
 		fi
 	else
@@ -192,18 +218,18 @@ EOF
 	cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
-name = "https"
+name = "https-${FRPC_PROXY_SUFFIX}"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 8080
-remotePort = 10443
+remotePort = ${FRPC_HTTPS_REMOTE_PORT}
 
 [[proxies]]
-name = "http-admin"
+name = "http-admin-${FRPC_PROXY_SUFFIX}"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 8080
-remotePort = 18080
+remotePort = ${FRPC_HTTP_ADMIN_REMOTE_PORT}
 EOF
 }
 
@@ -218,10 +244,10 @@ start_stalwart() {
 
 wait_for_frpc_ready() {
 	FRPC_READY_TIMEOUT="${FRPC_READY_TIMEOUT:-60}"
-	required_proxies="smtp https http-admin"
+	required_proxies="smtp-${FRPC_PROXY_SUFFIX} https-${FRPC_PROXY_SUFFIX} http-admin-${FRPC_PROXY_SUFFIX}"
 
 	if [ "$RECOVERY_MODE_ACTIVE" = "true" ]; then
-		required_proxies="https http-admin"
+		required_proxies="https-${FRPC_PROXY_SUFFIX} http-admin-${FRPC_PROXY_SUFFIX}"
 	fi
 
 	elapsed=0
@@ -257,7 +283,7 @@ wait_for_frpc_ready() {
 
 start_frpc() {
 	build_frpc_config
-	log info "Starting frpc tunnel to ${FRPS_ADDR}:${FRPS_PORT:-7000}."
+	log info "Starting frpc tunnel to ${FRPS_ADDR}:${FRPS_PORT:-7000} for slot ${FRPC_PROXY_SUFFIX}."
 	: > "$FRPC_LOG_FILE"
 	/usr/local/bin/frpc -c "${FRPC_CONFIG:-/tmp/frpc.toml}" >> "$FRPC_LOG_FILE" 2>&1 &
 	FRPC_PID=$!
