@@ -1,10 +1,6 @@
 #!/bin/sh
 set -eu
 
-# Build Stalwart config.json from Railway PostgreSQL variables.
-# Link your PostgreSQL service in Railway so PGHOST, PGPORT, PGDATABASE,
-# PGUSER, and PGPASSWORD are injected automatically.
-
 parse_database_url() {
 	url="$1"
 	url="${url#postgresql://}"
@@ -73,9 +69,34 @@ case "${STALWART_RECOVERY_MODE:-}" in
 		;;
 esac
 
+timestamp() {
+	date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+log() {
+	level="$1"
+	shift
+	printf '%s [%s] %s\n' "$(timestamp)" "$level" "$*" >&2
+}
+
+cleanup() {
+	if [ -n "${FRPC_PID:-}" ] && kill -0 "$FRPC_PID" 2>/dev/null; then
+		kill "$FRPC_PID" 2>/dev/null || true
+	fi
+	if [ -n "${STALWART_PID:-}" ] && kill -0 "$STALWART_PID" 2>/dev/null; then
+		kill "$STALWART_PID" 2>/dev/null || true
+	fi
+}
+
+trap cleanup EXIT INT TERM
+
 if [ -z "$PGHOST" ] || [ -z "$PGUSER" ] || [ -z "$PGPASSWORD" ]; then
-	echo "error: missing PostgreSQL credentials." >&2
-	echo "In Railway, open your Stalwart service -> Variables -> add references from your PostgreSQL service (PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD)." >&2
+	log error "Missing PostgreSQL credentials."
+	exit 1
+fi
+
+if [ -z "${FRPS_ADDR:-}" ] || [ -z "${FRPC_TOKEN:-}" ]; then
+	log error "FRPS_ADDR and FRPC_TOKEN are required."
 	exit 1
 fi
 
@@ -99,217 +120,10 @@ cat > /etc/stalwart/config.json <<EOF
 }
 EOF
 
-timestamp() {
-	date -u +"%Y-%m-%dT%H:%M:%SZ"
-}
-
-log() {
-	level="$1"
-	shift
-	printf '%s [%s] %s\n' "$(timestamp)" "$level" "$*" >&2
-}
-
-STARTUP_COMPLETE=false
-SHUTDOWN_REQUESTED=false
-
-require_command() {
-	if ! command -v "$1" >/dev/null 2>&1; then
-		log error "Required command not found: $1"
-		exit 1
-	fi
-}
-
-handle_signal() {
-	SHUTDOWN_REQUESTED=true
-}
-
-cleanup() {
-	status=$?
-
-	if [ "$status" -ne 0 ]; then
-		if [ "$SHUTDOWN_REQUESTED" = "true" ]; then
-			log info "Shutdown signal received."
-		elif [ "$STARTUP_COMPLETE" = "true" ]; then
-			log error "Container exited after startup with exit code $status."
-		else
-			log error "Container startup failed with exit code $status."
-		fi
-		if [ "$SHUTDOWN_REQUESTED" != "true" ]; then
-			if [ -n "${STALWART_LOG_FILE:-}" ] && [ -f "$STALWART_LOG_FILE" ]; then
-				log error "Last Stalwart log lines:"
-				tail -n 40 "$STALWART_LOG_FILE" >&2 || true
-			fi
-			if [ -n "${FRPC_LOG_FILE:-}" ] && [ -f "$FRPC_LOG_FILE" ]; then
-				log error "Last frpc log lines:"
-				tail -n 40 "$FRPC_LOG_FILE" >&2 || true
-			fi
-		fi
-	fi
-
-	if [ -n "${STALWART_LOGGER_PID:-}" ] && kill -0 "$STALWART_LOGGER_PID" 2>/dev/null; then
-		kill "$STALWART_LOGGER_PID" 2>/dev/null || true
-	fi
-	if [ -n "${FRPC_LOGGER_PID:-}" ] && kill -0 "$FRPC_LOGGER_PID" 2>/dev/null; then
-		kill "$FRPC_LOGGER_PID" 2>/dev/null || true
-	fi
-	if [ -n "${FRPC_PID:-}" ] && kill -0 "$FRPC_PID" 2>/dev/null; then
-		kill "$FRPC_PID" 2>/dev/null || true
-	fi
-	if [ -n "${STALWART_PID:-}" ] && kill -0 "$STALWART_PID" 2>/dev/null; then
-		kill "$STALWART_PID" 2>/dev/null || true
-	fi
-}
-
-trap handle_signal INT TERM
-trap cleanup EXIT
-
-dump_stalwart_diagnostics() {
-	log error "Stalwart diagnostics begin."
-
-	if [ -n "${STALWART_PID:-}" ]; then
-		log error "Process status for pid ${STALWART_PID}:"
-		if command -v ps >/dev/null 2>&1; then
-			ps -p "$STALWART_PID" -o pid=,ppid=,stat=,etime=,cmd= >&2 || true
-		elif [ -r "/proc/$STALWART_PID/status" ]; then
-			grep -E '^(Name|State|Pid|PPid|Threads):' "/proc/$STALWART_PID/status" >&2 || true
-			if [ -r "/proc/$STALWART_PID/cmdline" ]; then
-				tr '\000' ' ' < "/proc/$STALWART_PID/cmdline" >&2 || true
-				printf '\n' >&2
-			fi
-		else
-			log error "No process inspection tool available."
-		fi
-	fi
-
-	log error "Listening sockets on port 8080:"
-	ss -lntp 2>/dev/null | grep ':8080' >&2 || netstat -lntp 2>/dev/null | grep ':8080' >&2 || true
-
-	if nc -z 127.0.0.1 8080 >/dev/null 2>&1; then
-		log error "TCP connect to 127.0.0.1:8080 succeeded."
-	else
-		log error "TCP connect to 127.0.0.1:8080 failed."
-	fi
-
-	log error "HTTP probe to ${STALWART_INTERNAL_HEALTHCHECK_URL}:"
-	curl -sS -i --max-time 2 "$STALWART_INTERNAL_HEALTHCHECK_URL" >&2 || true
-
-	log error "HTTP probe to ${STALWART_INTERNAL_ROOT_URL}:"
-	curl -sS -i --max-time 2 "$STALWART_INTERNAL_ROOT_URL" >&2 || true
-
-	if [ "$RECOVERY_MODE_ACTIVE" != "true" ]; then
-		log error "Hint: if the DB-backed HTTP listener config is broken, temporarily set STALWART_RECOVERY_MODE=1 and STALWART_RECOVERY_ADMIN=admin:<strong-password> in Railway, redeploy, fix the listeners in WebAdmin, then remove those variables."
-	fi
-
-	log error "Stalwart diagnostics end."
-}
-
-wait_for_http_ready() {
-	name="$1"
-	url="$2"
-	timeout="$3"
-	pid="$4"
-	root_url="$5"
-	host="$6"
-	port="$7"
-	elapsed=0
-
-	while [ "$elapsed" -lt "$timeout" ]; do
-		if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
-			log info "$name is ready."
-			return 0
-		fi
-		if curl -sS -I --max-time 2 "$root_url" >/dev/null 2>&1; then
-			log info "$name accepted HTTP requests on ${root_url}."
-			return 0
-		fi
-		if ss -lnt 2>/dev/null | grep -q "[\\.:]$port " || netstat -lnt 2>/dev/null | grep -q "[\\.:]$port "; then
-			log info "$name is listening on ${host}:${port}."
-			return 0
-		fi
-		if ! kill -0 "$pid" 2>/dev/null; then
-			log error "$name exited before becoming ready."
-			return 1
-		fi
-		elapsed=$((elapsed + 1))
-		sleep 1
-	done
-
-	log error "$name did not become ready within ${timeout}s."
-	dump_stalwart_diagnostics
-	return 1
-}
-
-wait_for_frpc_ready() {
-	timeout="$1"
-	elapsed=0
-
-	while [ "$elapsed" -lt "$timeout" ]; do
-		if ! kill -0 "$FRPC_PID" 2>/dev/null; then
-			log error "frpc exited before becoming ready."
-			return 1
-		fi
-		if grep -q "login to server success" "$FRPC_LOG_FILE" 2>/dev/null && \
-			(grep -q "proxy added:" "$FRPC_LOG_FILE" 2>/dev/null || grep -q "start proxy success" "$FRPC_LOG_FILE" 2>/dev/null); then
-			log info "frpc connected to FRPS and registered proxies."
-			return 0
-		fi
-		elapsed=$((elapsed + 1))
-		sleep 1
-	done
-
-	log error "frpc did not report a successful FRPS login within ${timeout}s."
-	return 1
-}
-
-start_logged_process() {
-	name="$1"
-	log_file="$2"
-	pipe_file="$3"
-	shift 3
-
-	rm -f "$pipe_file"
-	: > "$log_file"
-	mkfifo "$pipe_file"
-	tee -a "$log_file" < "$pipe_file" >&2 &
-	logger_pid=$!
-	"$@" > "$pipe_file" 2>&1 &
-	process_pid=$!
-	rm -f "$pipe_file"
-
-	if [ "$name" = "stalwart" ]; then
-		STALWART_LOG_FILE="$log_file"
-		STALWART_LOGGER_PID="$logger_pid"
-		STALWART_PID="$process_pid"
-	else
-		FRPC_LOG_FILE="$log_file"
-		FRPC_LOGGER_PID="$logger_pid"
-		FRPC_PID="$process_pid"
-	fi
-
-	log info "Started $name with pid $process_pid."
-}
-
-start_frpc() {
-	if [ -z "${FRPS_ADDR:-}" ]; then
-		log error "FRPS_ADDR is not set. frpc is required for this deployment."
-		exit 1
-	fi
-
-	if [ -z "${FRPC_TOKEN:-}" ]; then
-		log error "FRPC_TOKEN is required when FRPS_ADDR is set."
-		exit 1
-	fi
-
-	require_command frpc
-
+build_frpc_config() {
 	FRPS_PORT="${FRPS_PORT:-7000}"
 	FRPC_CONFIG="${FRPC_CONFIG:-/tmp/frpc.toml}"
 	FRPC_ENABLE_SUBMISSION_PROXY="${FRPC_ENABLE_SUBMISSION_PROXY:-false}"
-	FRPC_READY_TIMEOUT="${FRPC_READY_TIMEOUT:-20}"
-
-	log info "Preparing frpc config for ${FRPS_ADDR}:${FRPS_PORT}."
-	log info "Submission proxy enabled: ${FRPC_ENABLE_SUBMISSION_PROXY}."
-	log info "Recovery mode active: ${RECOVERY_MODE_ACTIVE}."
 
 	cat > "$FRPC_CONFIG" <<EOF
 serverAddr = "${FRPS_ADDR}"
@@ -336,29 +150,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 465
 remotePort = 10465
-EOF
-	fi
-
-	if [ "$RECOVERY_MODE_ACTIVE" != "true" ] && [ "$FRPC_ENABLE_SUBMISSION_PROXY" = "true" ]; then
-		cat >> "$FRPC_CONFIG" <<EOF
-
-[[proxies]]
-name = "submission"
-type = "tcp"
-localIP = "127.0.0.1"
-localPort = 587
-remotePort = 10587
-EOF
-	else
-		log info "Skipping submission proxy on port 587."
-	fi
-
-	cat >> "$FRPC_CONFIG" <<EOF
-
-EOF
-
-	if [ "$RECOVERY_MODE_ACTIVE" != "true" ]; then
-		cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
 name = "imaps"
@@ -367,8 +158,20 @@ localIP = "127.0.0.1"
 localPort = 993
 remotePort = 10993
 EOF
+
+		if [ "$FRPC_ENABLE_SUBMISSION_PROXY" = "true" ]; then
+			cat >> "$FRPC_CONFIG" <<EOF
+
+[[proxies]]
+name = "submission"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 587
+remotePort = 10587
+EOF
+		fi
 	else
-		log info "Recovery mode enabled, skipping mail protocol proxies and exposing admin/JMAP only."
+		log info "Recovery mode enabled, exposing only admin/JMAP HTTP."
 	fi
 
 	cat >> "$FRPC_CONFIG" <<EOF
@@ -387,32 +190,71 @@ localIP = "127.0.0.1"
 localPort = 8080
 remotePort = 18080
 EOF
-
-	log info "Starting frpc tunnel to ${FRPS_ADDR}:${FRPS_PORT}."
-	start_logged_process "frpc" "${FRPC_LOG_FILE:-/tmp/frpc.log}" "${FRPC_PIPE_FILE:-/tmp/frpc.pipe}" /usr/local/bin/frpc -c "$FRPC_CONFIG"
-	wait_for_frpc_ready "$FRPC_READY_TIMEOUT"
 }
 
 start_stalwart() {
-	require_command curl
-	require_command stalwart
-
-	STALWART_READY_TIMEOUT="${STALWART_READY_TIMEOUT:-20}"
-	STALWART_MANAGEMENT_HOST="${STALWART_MANAGEMENT_HOST:-127.0.0.1}"
-	STALWART_MANAGEMENT_PORT="${STALWART_MANAGEMENT_PORT:-8080}"
-	STALWART_INTERNAL_HEALTHCHECK_URL="${STALWART_INTERNAL_HEALTHCHECK_URL:-http://${STALWART_MANAGEMENT_HOST}:${STALWART_MANAGEMENT_PORT}/healthz/live}"
-	STALWART_INTERNAL_ROOT_URL="${STALWART_INTERNAL_ROOT_URL:-http://${STALWART_MANAGEMENT_HOST}:${STALWART_MANAGEMENT_PORT}/}"
-
 	log info "Starting Stalwart."
 	log info "Database target: host=${PGHOST} port=${PGPORT} database=${PGDATABASE} tls=${USE_TLS} allowInvalidCerts=${ALLOW_INVALID}."
 	log info "Recovery mode active: ${RECOVERY_MODE_ACTIVE}."
-	start_logged_process "stalwart" "${STALWART_LOG_FILE:-/tmp/stalwart.log}" "${STALWART_PIPE_FILE:-/tmp/stalwart.pipe}" /usr/local/bin/stalwart --config /etc/stalwart/config.json
-	wait_for_http_ready "Stalwart management listener" "$STALWART_INTERNAL_HEALTHCHECK_URL" "$STALWART_READY_TIMEOUT" "$STALWART_PID" "$STALWART_INTERNAL_ROOT_URL" "$STALWART_MANAGEMENT_HOST" "$STALWART_MANAGEMENT_PORT"
+	/usr/local/bin/stalwart --config /etc/stalwart/config.json &
+	STALWART_PID=$!
+	log info "Started stalwart with pid ${STALWART_PID}."
+}
+
+start_frpc() {
+	build_frpc_config
+	log info "Starting frpc tunnel to ${FRPS_ADDR}:${FRPS_PORT:-7000}."
+	/usr/local/bin/frpc -c "${FRPC_CONFIG:-/tmp/frpc.toml}" &
+	FRPC_PID=$!
+	log info "Started frpc with pid ${FRPC_PID}."
+}
+
+verify_startup() {
+	STARTUP_GRACE_SECONDS="${STARTUP_GRACE_SECONDS:-20}"
+	FRPC_START_DELAY_SECONDS="${FRPC_START_DELAY_SECONDS:-2}"
+
+	sleep "$FRPC_START_DELAY_SECONDS"
+	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
+		log error "Stalwart exited during startup."
+		wait "$STALWART_PID" || true
+		exit 1
+	fi
+
+	start_frpc
+	sleep "$STARTUP_GRACE_SECONDS"
+
+	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
+		log error "Stalwart exited within startup grace period."
+		wait "$STALWART_PID" || true
+		exit 1
+	fi
+
+	if ! kill -0 "$FRPC_PID" 2>/dev/null; then
+		log error "frpc exited within startup grace period."
+		wait "$FRPC_PID" || true
+		exit 1
+	fi
+
+	log info "Startup grace period passed."
+}
+
+monitor_processes() {
+	while :; do
+		if ! kill -0 "$STALWART_PID" 2>/dev/null; then
+			wait "$STALWART_PID"
+			exit $?
+		fi
+		if ! kill -0 "$FRPC_PID" 2>/dev/null; then
+			log error "frpc exited after startup."
+			wait "$FRPC_PID" || true
+			kill "$STALWART_PID" 2>/dev/null || true
+			wait "$STALWART_PID" || true
+			exit 1
+		fi
+		sleep 2
+	done
 }
 
 start_stalwart
-start_frpc
-
-STARTUP_COMPLETE=true
-log info "Startup checks passed. Waiting on Stalwart process."
-wait "$STALWART_PID"
+verify_startup
+monitor_processes
