@@ -105,6 +105,7 @@ start_frpc() {
 
 	FRPS_PORT="${FRPS_PORT:-7000}"
 	FRPC_CONFIG="${FRPC_CONFIG:-/tmp/frpc.toml}"
+	FRPC_ENABLE_SUBMISSION_PROXY="${FRPC_ENABLE_SUBMISSION_PROXY:-false}"
 
 	cat > "$FRPC_CONFIG" <<EOF
 serverAddr = "${FRPS_ADDR}"
@@ -127,6 +128,10 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 465
 remotePort = 10465
+EOF
+
+	if [ "$FRPC_ENABLE_SUBMISSION_PROXY" = "true" ]; then
+		cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
 name = "submission"
@@ -134,6 +139,12 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 587
 remotePort = 10587
+EOF
+	else
+		echo "Skipping submission proxy on port 587. Set FRPC_ENABLE_SUBMISSION_PROXY=true after creating the Stalwart submission listener." >&2
+	fi
+
+	cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
 name = "imaps"
@@ -173,8 +184,8 @@ start_stalwart() {
 	/usr/local/bin/stalwart --config /etc/stalwart/config.json &
 	STALWART_PID=$!
 
-	# Wait for management listener to be ready (up to 60s)
-	for i in $(seq 1 60); do
+	# Wait for management listener to be ready (up to 180s)
+	for i in $(seq 1 180); do
 		if curl -fsS http://127.0.0.1:8080/healthz/live >/dev/null 2>&1; then
 			echo "Stalwart management listener ready on :8080." >&2
 			return 0
@@ -185,7 +196,7 @@ start_stalwart() {
 		fi
 		sleep 1
 	done
-	echo "error: Stalwart did not become ready within 60 seconds." >&2
+	echo "error: Stalwart did not become ready within 180 seconds." >&2
 	exit 1
 }
 
