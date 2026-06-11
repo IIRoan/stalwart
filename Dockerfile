@@ -16,7 +16,7 @@ RUN apt-get update \
 COPY railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
 RUN chmod 755 /usr/local/bin/railway-entrypoint.sh \
     && chown stalwart:stalwart /usr/local/bin/railway-entrypoint.sh \
-    && echo "127.0.0.1 relay.internal" >> /etc/hosts
+    && chmod 666 /etc/hosts
 
 USER stalwart
 

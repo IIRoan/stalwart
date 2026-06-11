@@ -251,6 +251,13 @@ fi
 
 mkdir -p /etc/stalwart
 
+# Add a hosts entry for the internal relay so Stalwart doesn't reject it
+# as a loopback address. /etc/hosts is chmod 666 (in Dockerfile) so we can write.
+# The FRP visitor binds on 127.0.0.1:12587, so relay.internal resolves there.
+if ! grep -q 'relay.internal' /etc/hosts 2>/dev/null; then
+	echo "127.0.0.1 relay.internal" >> /etc/hosts
+fi
+
 cat > /etc/stalwart/config.json <<EOF
 {
   "@type": "PostgreSql",
