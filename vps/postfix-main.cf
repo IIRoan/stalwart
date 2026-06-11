@@ -1,0 +1,34 @@
+compatibility_level = 3.6
+
+myhostname = mail.solace.onl
+myorigin = $myhostname
+inet_interfaces = all
+inet_protocols = all
+
+mydestination = localhost
+relay_domains =
+local_recipient_maps =
+unknown_local_recipient_reject_code = 550
+
+smtpd_banner = $myhostname ESMTP relay
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+smtputf8_enable = yes
+
+mynetworks = 127.0.0.0/8 [::1]/128
+smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
+smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
+
+smtpd_tls_security_level = may
+smtpd_tls_cert_file = /etc/postfix/relay.pem
+smtpd_tls_key_file = /etc/postfix/relay.pem
+smtpd_tls_auth_only = yes
+smtp_tls_security_level = may
+
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_type = cyrus
+smtpd_sasl_path = smtpd
+cyrus_sasl_config_path = /etc/postfix/sasl
+smtpd_sasl_security_options = noanonymous
+broken_sasl_auth_clients = yes

@@ -376,6 +376,21 @@ localIP = "127.0.0.1"
 localPort = 8080
 remotePort = ${FRPC_HTTP_ADMIN_REMOTE_PORT}
 EOF
+
+	# STCP visitor for outbound relay: tunnels Railway 127.0.0.1:12587 -> VPS Postfix :2525
+	FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
+	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-12587}"
+
+	cat >> "$FRPC_CONFIG" <<EOF
+
+[[visitors]]
+name = "relay-postfix-visitor"
+type = "stcp"
+serverName = "relay-postfix"
+secretKey = "${FRPC_RELAY_STCP_KEY}"
+bindAddr = "127.0.0.1"
+bindPort = ${FRPC_RELAY_LOCAL_PORT}
+EOF
 }
 
 start_stalwart() {
