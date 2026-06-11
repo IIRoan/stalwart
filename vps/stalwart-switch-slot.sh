@@ -47,6 +47,18 @@ run_haproxy_command() {
 	printf '%s\n' "$command" | sudo nc -U "$HAPROXY_SOCKET"
 }
 
+get_server_status() {
+	backend="$1"
+	slot="$2"
+
+	run_haproxy_command "show stat" | awk -F, -v backend="$backend" -v server="railway_${slot}" '
+		$1 == backend && $2 == server {
+			print $18
+			exit
+		}
+	'
+}
+
 set_slot_state() {
 	slot="$1"
 	state="$2"
@@ -113,6 +125,34 @@ read_active_slot() {
 	printf '%s\n' "blue"
 }
 
+wait_for_slot_up() {
+	slot="$1"
+
+	for backend in bk_smtp bk_https bk_http_admin; do
+		elapsed=0
+		while [ "$elapsed" -lt "$HTTP_READY_TIMEOUT" ]; do
+			status="$(get_server_status "$backend" "$slot")"
+			case "$status" in
+				UP|UP\ *)
+					break
+					;;
+			esac
+			elapsed=$((elapsed + 1))
+			sleep 1
+		done
+
+		status="$(get_server_status "$backend" "$slot")"
+		case "$status" in
+			UP|UP\ *)
+				;;
+			*)
+				echo "Slot $slot in backend $backend did not become UP in HAProxy, current status: ${status:-unknown}." >&2
+				exit 1
+				;;
+		esac
+	done
+}
+
 wait_for_tcp_port "$SMTP_PORT"
 wait_for_http_port "$HTTPS_PORT"
 wait_for_http_port "$HTTP_ADMIN_PORT"
@@ -126,6 +166,7 @@ CURRENT_SLOT="$(read_active_slot)"
 
 if [ "$CURRENT_SLOT" = "$TARGET_SLOT" ]; then
 	set_slot_state "$TARGET_SLOT" ready
+	wait_for_slot_up "$TARGET_SLOT"
 	case "$TARGET_SLOT" in
 		blue)
 			set_slot_state green maint
@@ -143,6 +184,7 @@ fi
 
 set_slot_state "$CURRENT_SLOT" ready
 set_slot_state "$TARGET_SLOT" ready
+wait_for_slot_up "$TARGET_SLOT"
 
 step_sleep=$((TRANSITION_SECONDS / TRANSITION_STEPS))
 if [ "$step_sleep" -lt 1 ]; then
@@ -171,6 +213,7 @@ done
 
 set_slot_state "$CURRENT_SLOT" drain
 sleep "$FINAL_DRAIN_SECONDS"
+wait_for_slot_up "$TARGET_SLOT"
 set_slot_state "$CURRENT_SLOT" maint
 set_slot_state "$TARGET_SLOT" ready
 
