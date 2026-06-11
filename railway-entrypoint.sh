@@ -82,7 +82,7 @@ log() {
 extract_json_value() {
 	key="$1"
 	input="$2"
-	printf '%s\n' "$input" | sed -n "s/.*\"$key\":\"\\([^\"]*\\)\".*/\\1/p"
+	printf '%s\n' "$input" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p"
 }
 
 slot_manager_request() {
