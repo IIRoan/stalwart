@@ -1,0 +1,13 @@
+serverAddr = "127.0.0.1"
+serverPort = 7000
+
+[auth]
+method = "token"
+token = "cf13775d89f50d978b5f82c13330aa866d064fef0143593c6afb82b2256b4c6b"
+
+[[proxies]]
+name = "relay-postfix"
+type = "stcp"
+localIP = "127.0.0.1"
+localPort = 2525
+secretKey = "relay-stcp-secret"

@@ -1,0 +1,13 @@
+[Unit]
+Description=FRP client for outbound relay tunnel (STCP)
+After=frps.service
+Requires=frps.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/frpc -c /etc/frp/frpc-relay.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
