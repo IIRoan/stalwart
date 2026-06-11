@@ -29,8 +29,18 @@ ACTIVE_SLOT_FILE="/etc/haproxy/stalwart-active-slot"
 HTTP_READY_TIMEOUT="${HTTP_READY_TIMEOUT:-60}"
 HTTP_HEALTHCHECK_HOST="${HTTP_HEALTHCHECK_HOST:-mail.solace.onl}"
 HAPROXY_SOCKET="${HAPROXY_SOCKET:-/run/haproxy/admin.sock}"
-TRANSITION_SECONDS="${TRANSITION_SECONDS:-30}"
+OVERLAP_SECONDS="${OVERLAP_SECONDS:-30}"
+FINAL_DRAIN_SECONDS="${FINAL_DRAIN_SECONDS:-5}"
+TRANSITION_SECONDS="${TRANSITION_SECONDS:-}"
 TRANSITION_STEPS="${TRANSITION_STEPS:-6}"
+
+if [ -z "$TRANSITION_SECONDS" ]; then
+	TRANSITION_SECONDS=$((OVERLAP_SECONDS - FINAL_DRAIN_SECONDS))
+fi
+
+if [ "$TRANSITION_SECONDS" -lt 1 ]; then
+	TRANSITION_SECONDS=1
+fi
 
 run_haproxy_command() {
 	command="$1"
@@ -145,4 +155,4 @@ while [ "$i" -le "$TRANSITION_STEPS" ]; do
 done
 
 printf '%s\n' "$TARGET_SLOT" | sudo tee "$ACTIVE_SLOT_FILE" >/dev/null
-echo "Active slot shifted to $TARGET_SLOT over ${TRANSITION_SECONDS}s."
+echo "Active slot shifted to $TARGET_SLOT over ${TRANSITION_SECONDS}s with ${FINAL_DRAIN_SECONDS}s final drain buffer."
