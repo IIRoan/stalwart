@@ -381,6 +381,8 @@ EOF
 	FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
 	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-12587}"
 
+	log info "Adding STCP visitor for relay: serverName=relay-postfix, bindPort=${FRPC_RELAY_LOCAL_PORT}."
+
 	cat >> "$FRPC_CONFIG" <<EOF
 
 [[visitors]]
@@ -391,6 +393,10 @@ secretKey = "${FRPC_RELAY_STCP_KEY}"
 bindAddr = "127.0.0.1"
 bindPort = ${FRPC_RELAY_LOCAL_PORT}
 EOF
+
+	log info "STCP visitor config written to ${FRPC_CONFIG}."
+	log info "frpc config contents:"
+	cat "$FRPC_CONFIG" | while IFS= read -r line; do log info "  frpc.cfg: $line"; done
 }
 
 start_stalwart() {
