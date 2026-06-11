@@ -42,7 +42,25 @@ fi
 
 run_haproxy_command() {
 	command="$1"
-	printf '%s\n' "$command" | sudo nc -U "$HAPROXY_SOCKET"
+	python3 - "$HAPROXY_SOCKET" "$command" <<'PY'
+import socket
+import sys
+
+sock_path = sys.argv[1]
+command = sys.argv[2] + "\n"
+
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.connect(sock_path)
+sock.sendall(command.encode())
+response = b""
+while True:
+    data = sock.recv(65536)
+    if not data:
+        break
+    response += data
+sock.close()
+sys.stdout.write(response.decode())
+PY
 }
 
 get_server_status() {
@@ -91,24 +109,6 @@ wait_for_tcp_port() {
 	exit 1
 }
 
-wait_for_http_port() {
-	port="$1"
-	elapsed=0
-	while [ "$elapsed" -lt "$HTTP_READY_TIMEOUT" ]; do
-		status_code="$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 -H "Host: ${HTTP_HEALTHCHECK_HOST}" "http://127.0.0.1:${port}/" || printf '000')"
-		case "$status_code" in
-			2*|3*|4*)
-				return 0
-				;;
-		esac
-		elapsed=$((elapsed + 1))
-		sleep 1
-	done
-
-	echo "HTTP port $port for slot $TARGET_SLOT did not become ready." >&2
-	exit 1
-}
-
 read_active_slot() {
 	if [ -f "$ACTIVE_SLOT_FILE" ]; then
 		slot="$(tr -d '[:space:]' < "$ACTIVE_SLOT_FILE")"
@@ -152,7 +152,7 @@ wait_for_slot_up() {
 }
 
 wait_for_tcp_port "$SMTP_PORT"
-wait_for_http_port "$HTTP_PORT"
+wait_for_tcp_port "$HTTP_PORT"
 
 if [ ! -S "$HAPROXY_SOCKET" ]; then
 	echo "HAProxy socket $HAPROXY_SOCKET is not available." >&2
