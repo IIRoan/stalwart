@@ -85,11 +85,58 @@ extract_json_value() {
 	printf '%s\n' "$input" | sed -n "s/.*\"$key\":\"\\([^\"]*\\)\".*/\\1/p"
 }
 
+slot_manager_request() {
+	method="$1"
+	path="$2"
+	body="${3:-}"
+
+	SLOT_MANAGER_URL="${SLOT_MANAGER_URL:-https://mail.solace.onl:9443}"
+	SLOT_MANAGER_CONNECT_TIMEOUT="${SLOT_MANAGER_CONNECT_TIMEOUT:-5}"
+	SLOT_MANAGER_MAX_TIME="${SLOT_MANAGER_MAX_TIME:-10}"
+	SLOT_MANAGER_RETRIES="${SLOT_MANAGER_RETRIES:-6}"
+
+	attempt=1
+	while [ "$attempt" -le "$SLOT_MANAGER_RETRIES" ]; do
+		log info "Slot manager ${method} ${path}, attempt ${attempt}/${SLOT_MANAGER_RETRIES} via ${SLOT_MANAGER_URL}."
+
+		if [ "$method" = "GET" ]; then
+			if response="$(curl -fsS \
+				--connect-timeout "$SLOT_MANAGER_CONNECT_TIMEOUT" \
+				--max-time "$SLOT_MANAGER_MAX_TIME" \
+				-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
+				"${SLOT_MANAGER_URL}${path}" 2>&1)"; then
+				printf '%s\n' "$response"
+				return 0
+			fi
+		else
+			if response="$(curl -fsS -X "$method" \
+				--connect-timeout "$SLOT_MANAGER_CONNECT_TIMEOUT" \
+				--max-time "$SLOT_MANAGER_MAX_TIME" \
+				-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
+				-H "Content-Type: application/json" \
+				-d "$body" \
+				"${SLOT_MANAGER_URL}${path}" 2>&1)"; then
+				printf '%s\n' "$response"
+				return 0
+			fi
+		fi
+
+		log error "Slot manager request failed: ${response}"
+		attempt=$((attempt + 1))
+		if [ "$attempt" -le "$SLOT_MANAGER_RETRIES" ]; then
+			sleep 2
+		fi
+	done
+
+	log error "Slot manager remained unreachable after ${SLOT_MANAGER_RETRIES} attempts."
+	return 1
+}
+
 determine_frpc_slot() {
 	FRPC_SLOT="${FRPC_SLOT:-auto}"
-	SLOT_MANAGER_URL="${SLOT_MANAGER_URL:-https://mail.solace.onl:9443}"
 
 	if [ "$FRPC_SLOT" != "auto" ]; then
+		log info "Using explicitly configured slot ${FRPC_SLOT}."
 		return 0
 	fi
 
@@ -98,7 +145,7 @@ determine_frpc_slot() {
 		exit 1
 	fi
 
-	response="$(curl -fsS -H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" "${SLOT_MANAGER_URL}/active")"
+	response="$(slot_manager_request GET /active)"
 	active_slot="$(extract_json_value active "$response")"
 
 	case "$active_slot" in
@@ -123,11 +170,7 @@ activate_frpc_slot() {
 		exit 1
 	fi
 
-	response="$(curl -fsS -X POST \
-		-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
-		-H "Content-Type: application/json" \
-		-d "{\"slot\":\"${FRPC_SLOT}\"}" \
-		"${SLOT_MANAGER_URL}/activate")"
+	response="$(slot_manager_request POST /activate "{\"slot\":\"${FRPC_SLOT}\"}")"
 
 	active_slot="$(extract_json_value active "$response")"
 	if [ "$active_slot" != "$FRPC_SLOT" ]; then
