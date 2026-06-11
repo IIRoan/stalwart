@@ -161,7 +161,17 @@ dump_stalwart_diagnostics() {
 
 	if [ -n "${STALWART_PID:-}" ]; then
 		log error "Process status for pid ${STALWART_PID}:"
-		ps -p "$STALWART_PID" -o pid=,ppid=,stat=,etime=,cmd= >&2 || true
+		if command -v ps >/dev/null 2>&1; then
+			ps -p "$STALWART_PID" -o pid=,ppid=,stat=,etime=,cmd= >&2 || true
+		elif [ -r "/proc/$STALWART_PID/status" ]; then
+			grep -E '^(Name|State|Pid|PPid|Threads):' "/proc/$STALWART_PID/status" >&2 || true
+			if [ -r "/proc/$STALWART_PID/cmdline" ]; then
+				tr '\000' ' ' < "/proc/$STALWART_PID/cmdline" >&2 || true
+				printf '\n' >&2
+			fi
+		else
+			log error "No process inspection tool available."
+		fi
 	fi
 
 	log error "Listening sockets on port 8080:"
@@ -173,11 +183,11 @@ dump_stalwart_diagnostics() {
 		log error "TCP connect to 127.0.0.1:8080 failed."
 	fi
 
-	log error "HTTP probe to ${STALWART_HEALTHCHECK_URL}:"
-	curl -sS -i --max-time 2 "$STALWART_HEALTHCHECK_URL" >&2 || true
+	log error "HTTP probe to ${STALWART_INTERNAL_HEALTHCHECK_URL}:"
+	curl -sS -i --max-time 2 "$STALWART_INTERNAL_HEALTHCHECK_URL" >&2 || true
 
-	log error "HTTP probe to http://127.0.0.1:8080/:"
-	curl -sS -i --max-time 2 http://127.0.0.1:8080/ >&2 || true
+	log error "HTTP probe to ${STALWART_INTERNAL_ROOT_URL}:"
+	curl -sS -i --max-time 2 "$STALWART_INTERNAL_ROOT_URL" >&2 || true
 
 	log error "Stalwart diagnostics end."
 }
@@ -187,11 +197,22 @@ wait_for_http_ready() {
 	url="$2"
 	timeout="$3"
 	pid="$4"
+	root_url="$5"
+	host="$6"
+	port="$7"
 	elapsed=0
 
 	while [ "$elapsed" -lt "$timeout" ]; do
 		if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
 			log info "$name is ready."
+			return 0
+		fi
+		if curl -sS -I --max-time 2 "$root_url" >/dev/null 2>&1; then
+			log info "$name accepted HTTP requests on ${root_url}."
+			return 0
+		fi
+		if ss -lnt 2>/dev/null | grep -q "[\\.:]$port " || netstat -lnt 2>/dev/null | grep -q "[\\.:]$port "; then
+			log info "$name is listening on ${host}:${port}."
 			return 0
 		fi
 		if ! kill -0 "$pid" 2>/dev/null; then
@@ -349,12 +370,15 @@ start_stalwart() {
 	require_command stalwart
 
 	STALWART_READY_TIMEOUT="${STALWART_READY_TIMEOUT:-20}"
-	STALWART_HEALTHCHECK_URL="${STALWART_HEALTHCHECK_URL:-http://127.0.0.1:8080/healthz/live}"
+	STALWART_MANAGEMENT_HOST="${STALWART_MANAGEMENT_HOST:-127.0.0.1}"
+	STALWART_MANAGEMENT_PORT="${STALWART_MANAGEMENT_PORT:-8080}"
+	STALWART_INTERNAL_HEALTHCHECK_URL="${STALWART_INTERNAL_HEALTHCHECK_URL:-http://${STALWART_MANAGEMENT_HOST}:${STALWART_MANAGEMENT_PORT}/healthz/live}"
+	STALWART_INTERNAL_ROOT_URL="${STALWART_INTERNAL_ROOT_URL:-http://${STALWART_MANAGEMENT_HOST}:${STALWART_MANAGEMENT_PORT}/}"
 
 	log info "Starting Stalwart."
 	log info "Database target: host=${PGHOST} port=${PGPORT} database=${PGDATABASE} tls=${USE_TLS} allowInvalidCerts=${ALLOW_INVALID}."
 	start_logged_process "stalwart" "${STALWART_LOG_FILE:-/tmp/stalwart.log}" "${STALWART_PIPE_FILE:-/tmp/stalwart.pipe}" /usr/local/bin/stalwart --config /etc/stalwart/config.json
-	wait_for_http_ready "Stalwart management listener" "$STALWART_HEALTHCHECK_URL" "$STALWART_READY_TIMEOUT" "$STALWART_PID"
+	wait_for_http_ready "Stalwart management listener" "$STALWART_INTERNAL_HEALTHCHECK_URL" "$STALWART_READY_TIMEOUT" "$STALWART_PID" "$STALWART_INTERNAL_ROOT_URL" "$STALWART_MANAGEMENT_HOST" "$STALWART_MANAGEMENT_PORT"
 }
 
 start_stalwart
