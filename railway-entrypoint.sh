@@ -251,13 +251,6 @@ fi
 
 mkdir -p /etc/stalwart
 
-# Add a hosts entry for the internal relay so Stalwart doesn't reject it
-# as a loopback address. /etc/hosts is chmod 666 (in Dockerfile) so we can write.
-# The FRP visitor binds on 127.0.0.1:12587, so relay.internal resolves there.
-if ! grep -q 'relay.internal' /etc/hosts 2>/dev/null; then
-	echo "127.0.0.1 relay.internal" >> /etc/hosts
-fi
-
 cat > /etc/stalwart/config.json <<EOF
 {
   "@type": "PostgreSql",
@@ -446,6 +439,7 @@ start_frpc() {
 
 	# Start a separate frpc process for the STCP visitor (outbound relay tunnel)
 	# This ensures the visitor works even if the main frpc config has issues.
+	# Bind on 0.0.0.0 so Stalwart can connect via the container's non-loopback IP.
 	FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
 	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-12587}"
 	FRPC_RELAY_CONFIG="/tmp/frpc-relay-visitor.toml"
@@ -463,14 +457,51 @@ name = "relay-postfix-visitor"
 type = "stcp"
 serverName = "relay-postfix"
 secretKey = "${FRPC_RELAY_STCP_KEY}"
-bindAddr = "127.0.0.1"
+bindAddr = "0.0.0.0"
 bindPort = ${FRPC_RELAY_LOCAL_PORT}
 EOF
 
-	log info "Starting frpc relay visitor to ${FRPS_ADDR}:${FRPS_PORT:-7000} on 127.0.0.1:${FRPC_RELAY_LOCAL_PORT}."
+	log info "Starting frpc relay visitor to ${FRPS_ADDR}:${FRPS_PORT:-7000} on 0.0.0.0:${FRPC_RELAY_LOCAL_PORT}."
 	/usr/local/bin/frpc -c "$FRPC_RELAY_CONFIG" >> /tmp/frpc-relay-visitor.log 2>&1 &
 	FRPC_RELAY_PID=$!
 	log info "Started frpc relay visitor with pid ${FRPC_RELAY_PID}."
+}
+
+update_relay_route() {
+	# Stalwart rejects loopback addresses for relay. Detect the container's
+	# own non-loopback IP and update the relay route via the management API.
+	CONTAINER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+	if [ -z "$CONTAINER_IP" ]; then
+		CONTAINER_IP="$(ip route get 1 2>/dev/null | awk '{print $7; exit}')"
+	fi
+	if [ -z "$CONTAINER_IP" ]; then
+		log warn "Could not detect container IP; relay route not updated."
+		return 0
+	fi
+
+	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-12587}"
+	STALWART_ADMIN_PORT="${STALWART_ADMIN_PORT:-8080}"
+	RELAY_ROUTE_ID="${RELAY_ROUTE_ID:-ivnbzc1aaba9}"
+	STALWART_ADMIN_TOKEN="${STALWART_ADMIN_TOKEN:-${STALWART_TOKEN}}"
+
+	log info "Detected container IP: ${CONTAINER_IP}. Updating relay route ${RELAY_ROUTE_ID} to ${CONTAINER_IP}:${FRPC_RELAY_LOCAL_PORT}."
+
+	# Use Stalwart management API to update the relay route address
+	for attempt in 1 2 3 4 5; do
+		if response="$(curl -fsS -X PATCH \
+			-H "Authorization: Bearer ${STALWART_ADMIN_TOKEN}" \
+			-H "Content-Type: application/json" \
+			-d "{\"address\":\"${CONTAINER_IP}\",\"port\":${FRPC_RELAY_LOCAL_PORT}}" \
+			"http://127.0.0.1:${STALWART_ADMIN_PORT}/api/mta/route/relay/${RELAY_ROUTE_ID}" 2>&1)"; then
+			log info "Relay route updated successfully: ${response}"
+			return 0
+		fi
+		log warn "Relay route update attempt ${attempt} failed: ${response}"
+		sleep 2
+	done
+
+	log error "Failed to update relay route after 5 attempts."
+	return 1
 }
 
 verify_startup() {
@@ -501,6 +532,10 @@ verify_startup() {
 
 	sleep "$STARTUP_GRACE_SECONDS"
 	activate_frpc_slot
+
+	# Update the Stalwart relay route to use the container's non-loopback IP
+	# so Stalwart doesn't reject it as a loopback address.
+	update_relay_route
 
 	log info "Startup grace period passed."
 }
