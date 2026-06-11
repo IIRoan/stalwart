@@ -47,6 +47,7 @@ export PGPASSWORD="${PGPASSWORD:-${POSTGRES_PASSWORD:-}}"
 
 USE_TLS=false
 ALLOW_INVALID=false
+RECOVERY_MODE_ACTIVE=false
 
 case "$PGHOST" in
 	*.proxy.rlwy.net|*.rlwy.net)
@@ -63,6 +64,12 @@ case "${DATABASE_URL:-}${DATABASE_PUBLIC_URL:-}" in
 	*sslmode=require*|*sslmode=verify*)
 		USE_TLS=true
 		ALLOW_INVALID=true
+		;;
+esac
+
+case "${STALWART_RECOVERY_MODE:-}" in
+	1|true|TRUE|yes|YES)
+		RECOVERY_MODE_ACTIVE=true
 		;;
 esac
 
@@ -189,6 +196,10 @@ dump_stalwart_diagnostics() {
 	log error "HTTP probe to ${STALWART_INTERNAL_ROOT_URL}:"
 	curl -sS -i --max-time 2 "$STALWART_INTERNAL_ROOT_URL" >&2 || true
 
+	if [ "$RECOVERY_MODE_ACTIVE" != "true" ]; then
+		log error "Hint: if the DB-backed HTTP listener config is broken, temporarily set STALWART_RECOVERY_MODE=1 and STALWART_RECOVERY_ADMIN=admin:<strong-password> in Railway, redeploy, fix the listeners in WebAdmin, then remove those variables."
+	fi
+
 	log error "Stalwart diagnostics end."
 }
 
@@ -298,6 +309,7 @@ start_frpc() {
 
 	log info "Preparing frpc config for ${FRPS_ADDR}:${FRPS_PORT}."
 	log info "Submission proxy enabled: ${FRPC_ENABLE_SUBMISSION_PROXY}."
+	log info "Recovery mode active: ${RECOVERY_MODE_ACTIVE}."
 
 	cat > "$FRPC_CONFIG" <<EOF
 serverAddr = "${FRPS_ADDR}"
@@ -306,6 +318,10 @@ serverPort = ${FRPS_PORT}
 [auth]
 method = "token"
 token = "${FRPC_TOKEN}"
+EOF
+
+	if [ "$RECOVERY_MODE_ACTIVE" != "true" ]; then
+		cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
 name = "smtp"
@@ -321,8 +337,9 @@ localIP = "127.0.0.1"
 localPort = 465
 remotePort = 10465
 EOF
+	fi
 
-	if [ "$FRPC_ENABLE_SUBMISSION_PROXY" = "true" ]; then
+	if [ "$RECOVERY_MODE_ACTIVE" != "true" ] && [ "$FRPC_ENABLE_SUBMISSION_PROXY" = "true" ]; then
 		cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
@@ -338,12 +355,23 @@ EOF
 
 	cat >> "$FRPC_CONFIG" <<EOF
 
+EOF
+
+	if [ "$RECOVERY_MODE_ACTIVE" != "true" ]; then
+		cat >> "$FRPC_CONFIG" <<EOF
+
 [[proxies]]
 name = "imaps"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 993
 remotePort = 10993
+EOF
+	else
+		log info "Recovery mode enabled, skipping mail protocol proxies and exposing admin/JMAP only."
+	fi
+
+	cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
 name = "https"
@@ -377,6 +405,7 @@ start_stalwart() {
 
 	log info "Starting Stalwart."
 	log info "Database target: host=${PGHOST} port=${PGPORT} database=${PGDATABASE} tls=${USE_TLS} allowInvalidCerts=${ALLOW_INVALID}."
+	log info "Recovery mode active: ${RECOVERY_MODE_ACTIVE}."
 	start_logged_process "stalwart" "${STALWART_LOG_FILE:-/tmp/stalwart.log}" "${STALWART_PIPE_FILE:-/tmp/stalwart.pipe}" /usr/local/bin/stalwart --config /etc/stalwart/config.json
 	wait_for_http_ready "Stalwart management listener" "$STALWART_INTERNAL_HEALTHCHECK_URL" "$STALWART_READY_TIMEOUT" "$STALWART_PID" "$STALWART_INTERNAL_ROOT_URL" "$STALWART_MANAGEMENT_HOST" "$STALWART_MANAGEMENT_PORT"
 }
