@@ -229,6 +229,9 @@ cleanup() {
 	if [ -n "${FRPC_PID:-}" ] && kill -0 "$FRPC_PID" 2>/dev/null; then
 		kill "$FRPC_PID" 2>/dev/null || true
 	fi
+	if [ -n "${FRPC_RELAY_PID:-}" ] && kill -0 "$FRPC_RELAY_PID" 2>/dev/null; then
+		kill "$FRPC_RELAY_PID" 2>/dev/null || true
+	fi
 	if [ -n "${STALWART_PID:-}" ] && kill -0 "$STALWART_PID" 2>/dev/null; then
 		kill "$STALWART_PID" 2>/dev/null || true
 	fi
@@ -376,27 +379,6 @@ localIP = "127.0.0.1"
 localPort = 8080
 remotePort = ${FRPC_HTTP_ADMIN_REMOTE_PORT}
 EOF
-
-	# STCP visitor for outbound relay: tunnels Railway 127.0.0.1:12587 -> VPS Postfix :2525
-	FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
-	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-12587}"
-
-	log info "Adding STCP visitor for relay: serverName=relay-postfix, bindPort=${FRPC_RELAY_LOCAL_PORT}."
-
-	cat >> "$FRPC_CONFIG" <<EOF
-
-[[visitors]]
-name = "relay-postfix-visitor"
-type = "stcp"
-serverName = "relay-postfix"
-secretKey = "${FRPC_RELAY_STCP_KEY}"
-bindAddr = "127.0.0.1"
-bindPort = ${FRPC_RELAY_LOCAL_PORT}
-EOF
-
-	log info "STCP visitor config written to ${FRPC_CONFIG}."
-	log info "frpc config contents:"
-	cat "$FRPC_CONFIG" | while IFS= read -r line; do log info "  frpc.cfg: $line"; done
 }
 
 start_stalwart() {
@@ -454,6 +436,34 @@ start_frpc() {
 	/usr/local/bin/frpc -c "${FRPC_CONFIG:-/tmp/frpc.toml}" >> "$FRPC_LOG_FILE" 2>&1 &
 	FRPC_PID=$!
 	log info "Started frpc with pid ${FRPC_PID}."
+
+	# Start a separate frpc process for the STCP visitor (outbound relay tunnel)
+	# This ensures the visitor works even if the main frpc config has issues.
+	FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
+	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-12587}"
+	FRPC_RELAY_CONFIG="/tmp/frpc-relay-visitor.toml"
+
+	cat > "$FRPC_RELAY_CONFIG" <<EOF
+serverAddr = "${FRPS_ADDR}"
+serverPort = ${FRPS_PORT:-7000}
+
+[auth]
+method = "token"
+token = "${FRPC_TOKEN}"
+
+[[visitors]]
+name = "relay-postfix-visitor"
+type = "stcp"
+serverName = "relay-postfix"
+secretKey = "${FRPC_RELAY_STCP_KEY}"
+bindAddr = "127.0.0.1"
+bindPort = ${FRPC_RELAY_LOCAL_PORT}
+EOF
+
+	log info "Starting frpc relay visitor to ${FRPS_ADDR}:${FRPS_PORT:-7000} on 127.0.0.1:${FRPC_RELAY_LOCAL_PORT}."
+	/usr/local/bin/frpc -c "$FRPC_RELAY_CONFIG" >> /tmp/frpc-relay-visitor.log 2>&1 &
+	FRPC_RELAY_PID=$!
+	log info "Started frpc relay visitor with pid ${FRPC_RELAY_PID}."
 }
 
 verify_startup() {
@@ -499,6 +509,15 @@ monitor_processes() {
 			wait "$FRPC_PID" || true
 			kill "$STALWART_PID" 2>/dev/null || true
 			wait "$STALWART_PID" || true
+			exit 1
+		fi
+		if ! kill -0 "$FRPC_RELAY_PID" 2>/dev/null; then
+			log error "frpc relay visitor exited after startup."
+			wait "$FRPC_RELAY_PID" || true
+			kill "$STALWART_PID" 2>/dev/null || true
+			kill "$FRPC_PID" 2>/dev/null || true
+			wait "$STALWART_PID" || true
+			wait "$FRPC_PID" || true
 			exit 1
 		fi
 		sleep 2
