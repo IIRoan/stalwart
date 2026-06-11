@@ -90,7 +90,7 @@ slot_manager_request() {
 	path="$2"
 	body="${3:-}"
 
-	SLOT_MANAGER_URL="${SLOT_MANAGER_URL:-https://mail.solace.onl:9443}"
+	SLOT_MANAGER_URL="${SLOT_MANAGER_URL:-https://mail.solace.onl/slot-manager}"
 	SLOT_MANAGER_CONNECT_TIMEOUT="${SLOT_MANAGER_CONNECT_TIMEOUT:-5}"
 	SLOT_MANAGER_MAX_TIME="${SLOT_MANAGER_MAX_TIME:-10}"
 	SLOT_MANAGER_RETRIES="${SLOT_MANAGER_RETRIES:-6}"
