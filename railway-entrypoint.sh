@@ -217,7 +217,7 @@ start_stalwart() {
 }
 
 wait_for_frpc_ready() {
-	FRPC_READY_TIMEOUT="${FRPC_READY_TIMEOUT:-30}"
+	FRPC_READY_TIMEOUT="${FRPC_READY_TIMEOUT:-60}"
 	required_proxies="smtp https http-admin"
 
 	if [ "$RECOVERY_MODE_ACTIVE" = "true" ]; then
