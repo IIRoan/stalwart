@@ -1,0 +1,14 @@
+[Unit]
+Description=Stalwart blue-green slot manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/stalwart-slot-manager.env
+ExecStart=/usr/bin/python3 /usr/local/bin/stalwart-slot-manager.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

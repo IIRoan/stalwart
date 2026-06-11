@@ -79,6 +79,65 @@ log() {
 	printf '%s [%s] %s\n' "$(timestamp)" "$level" "$*" >&2
 }
 
+extract_json_value() {
+	key="$1"
+	input="$2"
+	printf '%s\n' "$input" | sed -n "s/.*\"$key\":\"\\([^\"]*\\)\".*/\\1/p"
+}
+
+determine_frpc_slot() {
+	FRPC_SLOT="${FRPC_SLOT:-auto}"
+	SLOT_MANAGER_URL="${SLOT_MANAGER_URL:-https://mail.solace.onl:9443}"
+
+	if [ "$FRPC_SLOT" != "auto" ]; then
+		return 0
+	fi
+
+	if [ -z "${SLOT_MANAGER_TOKEN:-}" ]; then
+		log error "SLOT_MANAGER_TOKEN is required when FRPC_SLOT=auto."
+		exit 1
+	fi
+
+	response="$(curl -fsS -H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" "${SLOT_MANAGER_URL}/active")"
+	active_slot="$(extract_json_value active "$response")"
+
+	case "$active_slot" in
+		blue)
+			FRPC_SLOT="green"
+			;;
+		green)
+			FRPC_SLOT="blue"
+			;;
+		*)
+			log error "Slot manager returned invalid active slot: ${response}"
+			exit 1
+			;;
+	esac
+
+	log info "Auto-selected standby slot ${FRPC_SLOT} while active slot is ${active_slot}."
+}
+
+activate_frpc_slot() {
+	if [ -z "${SLOT_MANAGER_TOKEN:-}" ]; then
+		log error "SLOT_MANAGER_TOKEN is required to activate slot ${FRPC_SLOT}."
+		exit 1
+	fi
+
+	response="$(curl -fsS -X POST \
+		-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
+		-H "Content-Type: application/json" \
+		-d "{\"slot\":\"${FRPC_SLOT}\"}" \
+		"${SLOT_MANAGER_URL}/activate")"
+
+	active_slot="$(extract_json_value active "$response")"
+	if [ "$active_slot" != "$FRPC_SLOT" ]; then
+		log error "Slot manager failed to activate ${FRPC_SLOT}: ${response}"
+		exit 1
+	fi
+
+	log info "Activated slot ${FRPC_SLOT}."
+}
+
 cleanup() {
 	if [ -n "${FRPC_PID:-}" ] && kill -0 "$FRPC_PID" 2>/dev/null; then
 		kill "$FRPC_PID" 2>/dev/null || true
@@ -125,7 +184,6 @@ build_frpc_config() {
 	FRPC_CONFIG="${FRPC_CONFIG:-/tmp/frpc.toml}"
 	FRPC_ENABLE_SUBMISSION_PROXY="${FRPC_ENABLE_SUBMISSION_PROXY:-false}"
 	FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
-	FRPC_SLOT="${FRPC_SLOT:-blue}"
 
 	case "$FRPC_SLOT" in
 		blue)
@@ -317,6 +375,7 @@ verify_startup() {
 	fi
 
 	sleep "$STARTUP_GRACE_SECONDS"
+	activate_frpc_slot
 
 	log info "Startup grace period passed."
 }
@@ -339,5 +398,6 @@ monitor_processes() {
 }
 
 start_stalwart
+determine_frpc_slot
 verify_startup
 monitor_processes
