@@ -124,6 +124,7 @@ build_frpc_config() {
 	FRPS_PORT="${FRPS_PORT:-7000}"
 	FRPC_CONFIG="${FRPC_CONFIG:-/tmp/frpc.toml}"
 	FRPC_ENABLE_SUBMISSION_PROXY="${FRPC_ENABLE_SUBMISSION_PROXY:-false}"
+	FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
 
 	cat > "$FRPC_CONFIG" <<EOF
 serverAddr = "${FRPS_ADDR}"
@@ -143,6 +144,10 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 25
 remotePort = 10025
+EOF
+
+		if [ "${FRPC_ENABLE_SMTPS_PROXY:-false}" = "true" ]; then
+			cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
 name = "submissions"
@@ -150,6 +155,13 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 465
 remotePort = 10465
+EOF
+		else
+			log info "Skipping SMTPS proxy on port 465."
+		fi
+
+		if [ "${FRPC_ENABLE_IMAPS_PROXY:-false}" = "true" ]; then
+			cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
 name = "imaps"
@@ -158,6 +170,9 @@ localIP = "127.0.0.1"
 localPort = 993
 remotePort = 10993
 EOF
+		else
+			log info "Skipping IMAPS proxy on port 993."
+		fi
 
 		if [ "$FRPC_ENABLE_SUBMISSION_PROXY" = "true" ]; then
 			cat >> "$FRPC_CONFIG" <<EOF
@@ -201,10 +216,50 @@ start_stalwart() {
 	log info "Started stalwart with pid ${STALWART_PID}."
 }
 
+wait_for_frpc_ready() {
+	FRPC_READY_TIMEOUT="${FRPC_READY_TIMEOUT:-30}"
+	required_proxies="smtp https http-admin"
+
+	if [ "$RECOVERY_MODE_ACTIVE" = "true" ]; then
+		required_proxies="https http-admin"
+	fi
+
+	elapsed=0
+	while [ "$elapsed" -lt "$FRPC_READY_TIMEOUT" ]; do
+		if ! kill -0 "$FRPC_PID" 2>/dev/null; then
+			log error "frpc exited before becoming ready."
+			wait "$FRPC_PID" || true
+			return 1
+		fi
+
+		if grep -q "login to server success" "$FRPC_LOG_FILE" 2>/dev/null; then
+			all_ready=true
+			for proxy in $required_proxies; do
+				if ! grep -q "\\[$proxy\\] start proxy success" "$FRPC_LOG_FILE" 2>/dev/null; then
+					all_ready=false
+					break
+				fi
+			done
+			if [ "$all_ready" = "true" ]; then
+				log info "frpc connected and all required proxies are active."
+				return 0
+			fi
+		fi
+
+		elapsed=$((elapsed + 1))
+		sleep 1
+	done
+
+	log error "frpc did not activate all required proxies within ${FRPC_READY_TIMEOUT}s."
+	tail -n 40 "$FRPC_LOG_FILE" >&2 || true
+	return 1
+}
+
 start_frpc() {
 	build_frpc_config
 	log info "Starting frpc tunnel to ${FRPS_ADDR}:${FRPS_PORT:-7000}."
-	/usr/local/bin/frpc -c "${FRPC_CONFIG:-/tmp/frpc.toml}" &
+	: > "$FRPC_LOG_FILE"
+	/usr/local/bin/frpc -c "${FRPC_CONFIG:-/tmp/frpc.toml}" >> "$FRPC_LOG_FILE" 2>&1 &
 	FRPC_PID=$!
 	log info "Started frpc with pid ${FRPC_PID}."
 }
@@ -221,7 +276,7 @@ verify_startup() {
 	fi
 
 	start_frpc
-	sleep "$STARTUP_GRACE_SECONDS"
+	wait_for_frpc_ready
 
 	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
 		log error "Stalwart exited within startup grace period."
@@ -234,6 +289,8 @@ verify_startup() {
 		wait "$FRPC_PID" || true
 		exit 1
 	fi
+
+	sleep "$STARTUP_GRACE_SECONDS"
 
 	log info "Startup grace period passed."
 }
