@@ -11,13 +11,11 @@ fi
 case "$TARGET_SLOT" in
 	blue)
 		SMTP_PORT=10025
-		HTTPS_PORT=10443
-		HTTP_ADMIN_PORT=18080
+		HTTP_PORT=18080
 		;;
 	green)
 		SMTP_PORT=11025
-		HTTPS_PORT=11443
-		HTTP_ADMIN_PORT=19080
+		HTTP_PORT=19080
 		;;
 	*)
 		echo "Slot must be blue or green." >&2
@@ -154,8 +152,7 @@ wait_for_slot_up() {
 }
 
 wait_for_tcp_port "$SMTP_PORT"
-wait_for_http_port "$HTTPS_PORT"
-wait_for_http_port "$HTTP_ADMIN_PORT"
+wait_for_http_port "$HTTP_PORT"
 
 if [ ! -S "$HAPROXY_SOCKET" ]; then
 	echo "HAProxy socket $HAPROXY_SOCKET is not available." >&2

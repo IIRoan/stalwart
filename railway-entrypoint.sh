@@ -322,7 +322,7 @@ EOF
 name = "https-${FRPC_PROXY_SUFFIX}"
 type = "tcp"
 localIP = "127.0.0.1"
-localPort = 443
+localPort = 8080
 remotePort = ${FRPC_HTTPS_REMOTE_PORT}
 
 [[proxies]]
