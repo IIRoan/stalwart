@@ -156,6 +156,32 @@ cleanup() {
 trap handle_signal INT TERM
 trap cleanup EXIT
 
+dump_stalwart_diagnostics() {
+	log error "Stalwart diagnostics begin."
+
+	if [ -n "${STALWART_PID:-}" ]; then
+		log error "Process status for pid ${STALWART_PID}:"
+		ps -p "$STALWART_PID" -o pid=,ppid=,stat=,etime=,cmd= >&2 || true
+	fi
+
+	log error "Listening sockets on port 8080:"
+	ss -lntp 2>/dev/null | grep ':8080' >&2 || netstat -lntp 2>/dev/null | grep ':8080' >&2 || true
+
+	if nc -z 127.0.0.1 8080 >/dev/null 2>&1; then
+		log error "TCP connect to 127.0.0.1:8080 succeeded."
+	else
+		log error "TCP connect to 127.0.0.1:8080 failed."
+	fi
+
+	log error "HTTP probe to ${STALWART_HEALTHCHECK_URL}:"
+	curl -sS -i --max-time 2 "$STALWART_HEALTHCHECK_URL" >&2 || true
+
+	log error "HTTP probe to http://127.0.0.1:8080/:"
+	curl -sS -i --max-time 2 http://127.0.0.1:8080/ >&2 || true
+
+	log error "Stalwart diagnostics end."
+}
+
 wait_for_http_ready() {
 	name="$1"
 	url="$2"
@@ -177,6 +203,7 @@ wait_for_http_ready() {
 	done
 
 	log error "$name did not become ready within ${timeout}s."
+	dump_stalwart_diagnostics
 	return 1
 }
 
