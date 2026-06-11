@@ -11,8 +11,6 @@ RUN apt-get update \
     && mv "/tmp/frp_${FRPC_VERSION}_linux_amd64/frpc" /usr/local/bin/frpc \
     && chmod 755 /usr/local/bin/frpc \
     && rm -rf /tmp/frp_* \
-    && apt-get purge -yq curl \
-    && apt-get autoremove -yq \
     && rm -rf /var/lib/apt/lists/*
 
 COPY railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
