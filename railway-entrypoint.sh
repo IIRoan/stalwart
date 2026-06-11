@@ -183,8 +183,10 @@ start_stalwart() {
 	echo "Starting Stalwart..." >&2
 	/usr/local/bin/stalwart --config /etc/stalwart/config.json &
 	STALWART_PID=$!
+}
 
-	# Wait for management listener to be ready (up to 180s)
+wait_for_stalwart_ready() {
+	# Probe readiness in the background so slow startup does not crash the container.
 	for i in $(seq 1 180); do
 		if curl -fsS http://127.0.0.1:8080/healthz/live >/dev/null 2>&1; then
 			echo "Stalwart management listener ready on :8080." >&2
@@ -192,15 +194,16 @@ start_stalwart() {
 		fi
 		if ! kill -0 "$STALWART_PID" 2>/dev/null; then
 			echo "error: Stalwart exited before becoming ready." >&2
-			exit 1
+			return 1
 		fi
 		sleep 1
 	done
-	echo "error: Stalwart did not become ready within 180 seconds." >&2
-	exit 1
+	echo "warning: Stalwart did not report ready on :8080 within 180 seconds." >&2
+	return 1
 }
 
 start_stalwart
+wait_for_stalwart_ready &
 start_frpc
 
 # Keep the script alive as long as Stalwart is running
