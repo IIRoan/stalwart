@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import socket
 import subprocess
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -9,6 +10,10 @@ SWITCH_COMMAND = os.environ.get("SWITCH_COMMAND", "/usr/local/bin/stalwart-switc
 AUTH_TOKEN = os.environ.get("SLOT_MANAGER_TOKEN", "")
 BIND_ADDR = os.environ.get("SLOT_MANAGER_BIND", "127.0.0.1")
 PORT = int(os.environ.get("SLOT_MANAGER_PORT", "9081"))
+SLOT_PORTS = {
+    "blue": (10025, 18080),
+    "green": (11025, 19080),
+}
 
 
 def read_active_slot():
@@ -18,6 +23,20 @@ def read_active_slot():
             return slot if slot in {"blue", "green"} else "blue"
     except FileNotFoundError:
         return "blue"
+
+
+def port_open(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def read_status():
+    return {
+        "active": read_active_slot(),
+        "blueOccupied": any(port_open(port) for port in SLOT_PORTS["blue"]),
+        "greenOccupied": any(port_open(port) for port in SLOT_PORTS["green"]),
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -35,10 +54,18 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("Authorization") == f"Bearer {AUTH_TOKEN}"
 
     def do_GET(self):
-        if self.path != "/active":
+        if self.path == "/active":
+            self._send(200, {"active": read_active_slot()})
+            return
+        if self.path == "/status":
+            if not self._authorized():
+                self._send(401, {"error": "unauthorized"})
+                return
+            self._send(200, read_status())
+            return
+        else:
             self._send(404, {"error": "not_found"})
             return
-        self._send(200, {"active": read_active_slot()})
 
     def do_POST(self):
         if self.path != "/activate":

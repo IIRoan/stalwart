@@ -85,6 +85,12 @@ extract_json_value() {
 	printf '%s\n' "$input" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p"
 }
 
+extract_json_bool() {
+	key="$1"
+	input="$2"
+	printf '%s\n' "$input" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\\(true\\|false\\).*/\\1/p"
+}
+
 slot_manager_request() {
 	method="$1"
 	path="$2"
@@ -134,6 +140,8 @@ slot_manager_request() {
 
 determine_frpc_slot() {
 	FRPC_SLOT="${FRPC_SLOT:-auto}"
+	SLOT_OCCUPANCY_TIMEOUT="${SLOT_OCCUPANCY_TIMEOUT:-600}"
+	SLOT_OCCUPANCY_POLL_SECONDS="${SLOT_OCCUPANCY_POLL_SECONDS:-5}"
 
 	if [ "$FRPC_SLOT" != "auto" ]; then
 		log info "Using explicitly configured slot ${FRPC_SLOT}."
@@ -145,15 +153,29 @@ determine_frpc_slot() {
 		exit 1
 	fi
 
-	response="$(slot_manager_request GET /active)"
+	response="$(slot_manager_request GET /status)"
 	active_slot="$(extract_json_value active "$response")"
+	blue_occupied="$(extract_json_bool blueOccupied "$response")"
+	green_occupied="$(extract_json_bool greenOccupied "$response")"
 
 	case "$active_slot" in
 		blue)
-			FRPC_SLOT="green"
+			if [ "$blue_occupied" = "true" ]; then
+				FRPC_SLOT="green"
+				slot_occupied="$green_occupied"
+			else
+				FRPC_SLOT="blue"
+				slot_occupied="$blue_occupied"
+			fi
 			;;
 		green)
-			FRPC_SLOT="blue"
+			if [ "$green_occupied" = "true" ]; then
+				FRPC_SLOT="blue"
+				slot_occupied="$blue_occupied"
+			else
+				FRPC_SLOT="green"
+				slot_occupied="$green_occupied"
+			fi
 			;;
 		*)
 			log error "Slot manager returned invalid active slot: ${response}"
@@ -161,7 +183,29 @@ determine_frpc_slot() {
 			;;
 	esac
 
-	log info "Auto-selected standby slot ${FRPC_SLOT} while active slot is ${active_slot}."
+	log info "Auto-selected slot ${FRPC_SLOT} while active slot is ${active_slot} (blueOccupied=${blue_occupied:-unknown}, greenOccupied=${green_occupied:-unknown})."
+
+	elapsed=0
+	while [ "$slot_occupied" = "true" ]; do
+		if [ "$elapsed" -ge "$SLOT_OCCUPANCY_TIMEOUT" ]; then
+			log error "Slot ${FRPC_SLOT} remained occupied for ${SLOT_OCCUPANCY_TIMEOUT}s."
+			exit 1
+		fi
+
+		log info "Slot ${FRPC_SLOT} is still occupied, waiting ${SLOT_OCCUPANCY_POLL_SECONDS}s before retrying."
+		sleep "$SLOT_OCCUPANCY_POLL_SECONDS"
+		elapsed=$((elapsed + SLOT_OCCUPANCY_POLL_SECONDS))
+
+		response="$(slot_manager_request GET /status)"
+		case "$FRPC_SLOT" in
+			blue)
+				slot_occupied="$(extract_json_bool blueOccupied "$response")"
+				;;
+			green)
+				slot_occupied="$(extract_json_bool greenOccupied "$response")"
+				;;
+		esac
+	done
 }
 
 activate_frpc_slot() {
