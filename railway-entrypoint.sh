@@ -535,7 +535,7 @@ verify_startup() {
 
 	# Update the Stalwart relay route to use the container's non-loopback IP
 	# so Stalwart doesn't reject it as a loopback address.
-	update_relay_route
+	update_relay_route || log warn "Relay route update failed; will retry later."
 
 	log info "Startup grace period passed."
 }
