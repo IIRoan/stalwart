@@ -146,7 +146,7 @@ remotePort = 10993
 name = "https"
 type = "tcp"
 localIP = "127.0.0.1"
-localPort = 443
+localPort = 8080
 remotePort = 10443
 
 [[proxies]]
