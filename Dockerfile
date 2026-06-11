@@ -1,6 +1,6 @@
 FROM stalwartlabs/stalwart:v0.16
 
-ARG FRPC_VERSION=0.61.1
+ARG FRPC_VERSION=0.69.1
 
 USER root
 
