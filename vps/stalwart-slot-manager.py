@@ -3,7 +3,7 @@ import json
 import os
 import socket
 import subprocess
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ACTIVE_SLOT_FILE = os.environ.get("ACTIVE_SLOT_FILE", "/etc/haproxy/stalwart-active-slot")
 SWITCH_COMMAND = os.environ.get("SWITCH_COMMAND", "/usr/local/bin/stalwart-switch-slot")
@@ -101,4 +101,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    HTTPServer((BIND_ADDR, PORT), Handler).serve_forever()
+    ThreadingHTTPServer((BIND_ADDR, PORT), Handler).serve_forever()
