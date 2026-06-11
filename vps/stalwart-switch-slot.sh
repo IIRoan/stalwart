@@ -47,6 +47,15 @@ run_haproxy_command() {
 	printf '%s\n' "$command" | sudo nc -U "$HAPROXY_SOCKET"
 }
 
+set_slot_state() {
+	slot="$1"
+	state="$2"
+
+	for backend in bk_smtp bk_https bk_http_admin; do
+		run_haproxy_command "set server ${backend}/railway_${slot} state ${state}"
+	done
+}
+
 set_slot_weights() {
 	blue_weight="$1"
 	green_weight="$2"
@@ -116,11 +125,14 @@ fi
 CURRENT_SLOT="$(read_active_slot)"
 
 if [ "$CURRENT_SLOT" = "$TARGET_SLOT" ]; then
+	set_slot_state "$TARGET_SLOT" ready
 	case "$TARGET_SLOT" in
 		blue)
+			set_slot_state green maint
 			set_slot_weights 100 0
 			;;
 		green)
+			set_slot_state blue maint
 			set_slot_weights 0 100
 			;;
 	esac
@@ -128,6 +140,9 @@ if [ "$CURRENT_SLOT" = "$TARGET_SLOT" ]; then
 	echo "Active slot already set to $TARGET_SLOT."
 	exit 0
 fi
+
+set_slot_state "$CURRENT_SLOT" ready
+set_slot_state "$TARGET_SLOT" ready
 
 step_sleep=$((TRANSITION_SECONDS / TRANSITION_STEPS))
 if [ "$step_sleep" -lt 1 ]; then
@@ -153,6 +168,11 @@ while [ "$i" -le "$TRANSITION_STEPS" ]; do
 	fi
 	i=$((i + 1))
 done
+
+set_slot_state "$CURRENT_SLOT" drain
+sleep "$FINAL_DRAIN_SECONDS"
+set_slot_state "$CURRENT_SLOT" maint
+set_slot_state "$TARGET_SLOT" ready
 
 printf '%s\n' "$TARGET_SLOT" | sudo tee "$ACTIVE_SLOT_FILE" >/dev/null
 echo "Active slot shifted to $TARGET_SLOT over ${TRANSITION_SECONDS}s with ${FINAL_DRAIN_SECONDS}s final drain buffer."

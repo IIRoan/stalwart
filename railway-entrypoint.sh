@@ -391,34 +391,6 @@ start_frpc() {
 	log info "Started frpc with pid ${FRPC_PID}."
 }
 
-wait_for_http_ready() {
-	HTTP_READY_TIMEOUT="${HTTP_READY_TIMEOUT:-60}"
-	HTTP_HEALTHCHECK_URL="${HTTP_HEALTHCHECK_URL:-http://127.0.0.1:8080/}"
-
-	elapsed=0
-	while [ "$elapsed" -lt "$HTTP_READY_TIMEOUT" ]; do
-		if ! kill -0 "$STALWART_PID" 2>/dev/null; then
-			log error "Stalwart exited before HTTP became ready."
-			wait "$STALWART_PID" || true
-			return 1
-		fi
-
-		status_code="$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$HTTP_HEALTHCHECK_URL" || printf '000')"
-		case "$status_code" in
-			2*|3*|4*)
-				log info "HTTP listener is ready with status ${status_code}."
-				return 0
-				;;
-		esac
-
-		elapsed=$((elapsed + 1))
-		sleep 1
-	done
-
-	log error "HTTP listener did not become ready within ${HTTP_READY_TIMEOUT}s."
-	return 1
-}
-
 verify_startup() {
 	STARTUP_GRACE_SECONDS="${STARTUP_GRACE_SECONDS:-5}"
 	FRPC_START_DELAY_SECONDS="${FRPC_START_DELAY_SECONDS:-2}"
@@ -432,7 +404,6 @@ verify_startup() {
 
 	start_frpc
 	wait_for_frpc_ready
-	wait_for_http_ready
 
 	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
 		log error "Stalwart exited within startup grace period."
