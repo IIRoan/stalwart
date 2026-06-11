@@ -226,6 +226,7 @@ activate_frpc_slot() {
 }
 
 cleanup() {
+	printf "%s [error] Entrypoint exiting at line %d (exit code %d).\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "${LINENO:-0}" "${?:-0}" >&2 || true
 	if [ -n "${FRPC_PID:-}" ] && kill -0 "$FRPC_PID" 2>/dev/null; then
 		kill "$FRPC_PID" 2>/dev/null || true
 	fi
