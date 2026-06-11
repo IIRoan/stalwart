@@ -553,14 +553,10 @@ monitor_processes() {
 			wait "$STALWART_PID" || true
 			exit 1
 		fi
-		if ! kill -0 "$FRPC_RELAY_PID" 2>/dev/null; then
-			log error "frpc relay visitor exited after startup."
-			wait "$FRPC_RELAY_PID" || true
-			kill "$STALWART_PID" 2>/dev/null || true
-			kill "$FRPC_PID" 2>/dev/null || true
-			wait "$STALWART_PID" || true
-			wait "$FRPC_PID" || true
-			exit 1
+		if ! kill -0 "${FRPC_RELAY_PID:-}" 2>/dev/null; then
+			log warn "frpc relay visitor exited after startup; outbound relay may not work."
+			# Don't kill the entire container - the relay visitor is non-essential
+			# for the core Stalwart functionality (inbound mail and JMAP still work).
 		fi
 		sleep 2
 	done
