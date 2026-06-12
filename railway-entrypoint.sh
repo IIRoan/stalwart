@@ -500,9 +500,8 @@ wait_for_stalwart_management() {
 	i=0
 	max_seconds="${STALWART_MANAGEMENT_TIMEOUT_SECONDS:-120}"
 	while [ "$((i * 2))" -lt "$max_seconds" ]; do
-		if curl -fsSL --max-time 2 \
-			-H "Authorization: Bearer ${STALWART_ADMIN_TOKEN}" \
-			"${stalwart_url}/jmap/session" >/dev/null 2>&1; then
+		if stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
+			get MtaRoute "$RELAY_ROUTE_ID" >/dev/null 2>&1; then
 			log info "Stalwart management API ready on ${stalwart_url}."
 			return 0
 		fi
@@ -537,7 +536,8 @@ update_relay_route() {
 	while [ "$i" -lt "$max_attempts" ]; do
 		if stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
 			update MtaRoute "$RELAY_ROUTE_ID" \
-			--json "{\"address\":\"${relay_addr}\",\"port\":${FRPC_RELAY_LOCAL_PORT}}" \
+			--field "address=${relay_addr}" \
+			--field "port=${FRPC_RELAY_LOCAL_PORT}" \
 			>/dev/null 2>&1; then
 			stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
 				create Action/ReloadSettings >/dev/null 2>&1 || true
@@ -628,6 +628,7 @@ start_frpc() {
 	log info "frpc relay visitor pid=${FRPC_RELAY_PID}."
 	wait_for_relay_port
 	wait_for_frpc_proxies
+	update_relay_route || die "Relay route update failed; refusing to open health gate."
 }
 
 # --- main ---
@@ -640,7 +641,6 @@ resolve_slot
 start_health_server
 start_stalwart
 wait_for_stalwart_management
-update_relay_route || die "Relay route update failed; refusing to open health gate."
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
 start_frpc
 mark_health_ready
