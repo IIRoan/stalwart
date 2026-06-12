@@ -29,9 +29,11 @@ frpc TCP tunnel (Railway dials out to frps:7000)
 Railway Stalwart
 ```
 
-HAProxy sends PROXY protocol v2 to frps. Railway frpc is configured with
-`transport.proxyProtocolVersion = "v2"` so Stalwart sees the real client
-IP for SPF, DMARC, rate limiting, and logging.
+HAProxy sends PROXY protocol v2 to frps. Railway frpc enables
+`transport.proxyProtocolVersion = "v2"` on mail proxies (SMTP/IMAP) so
+Stalwart sees the real client IP for SPF, DMARC, rate limiting, and
+logging. HTTP/JMAP proxies omit PROXY protocol because Stalwart's HTTP
+listener rejects it.
 
 ### Outbound (VPS relay via STCP)
 

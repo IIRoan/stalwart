@@ -376,7 +376,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 8080
 remotePort = ${FRPC_HTTPS_REMOTE_PORT}
-transport.proxyProtocolVersion = "v2"
 
 [[proxies]]
 name = "http-admin-${FRPC_PROXY_SUFFIX}"
@@ -384,7 +383,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 8080
 remotePort = ${FRPC_HTTP_ADMIN_REMOTE_PORT}
-transport.proxyProtocolVersion = "v2"
 EOF
 }
 
