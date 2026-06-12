@@ -233,27 +233,34 @@ start_health_server() {
 	log info "Starting Railway health listener on 0.0.0.0:${HEALTH_PORT}/healthz/ready."
 	HEALTH_PORT="$HEALTH_PORT" python3 -u <<'PY' &
 import os
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import socket
+import threading
 
 port = int(os.environ["HEALTH_PORT"])
-body = (
+payload = (
+    b'HTTP/1.1 200 OK\r\n'
+    b'Content-Type: application/json\r\n'
+    b'Connection: close\r\n'
+    b'Content-Length: 62\r\n\r\n'
     b'{"type":"about:blank","title":"OK","status":200,"detail":"OK"}'
 )
 
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, _format, *_args):
-        return
+def handle(conn):
+    try:
+        conn.recv(4096)
+        conn.sendall(payload)
+    finally:
+        conn.close()
 
 
-ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock.bind(("0.0.0.0", port))
+sock.listen(32)
+while True:
+    client, _addr = sock.accept()
+    threading.Thread(target=handle, args=(client,), daemon=True).start()
 PY
 	HEALTH_PID=$!
 
