@@ -81,6 +81,51 @@ json_get() {
 	printf '%s\n' "$2" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p"
 }
 
+json_get_bool() {
+	printf '%s\n' "$2" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\\(true\\|false\\).*/\\1/p"
+}
+
+fetch_slot_status() {
+	if [ -n "${SLOT_MANAGER_TOKEN:-}" ]; then
+		curl -fsS --connect-timeout 3 --max-time 5 \
+			-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
+			"${SLOT_MANAGER_URL:-https://mail.solace.onl/slot-manager}/status" \
+			2>/dev/null || true
+		return 0
+	fi
+
+	curl -fsS --connect-timeout 3 --max-time 5 \
+		"${SLOT_MANAGER_URL:-https://mail.solace.onl/slot-manager}/active" \
+		2>/dev/null || true
+}
+
+slot_occupied() {
+	slot="$1"
+	status="$2"
+	key="${slot}Occupied"
+	value="$(json_get_bool "$key" "$status")"
+	[ "$value" = "true" ]
+}
+
+wait_for_slot_vacant() {
+	slot="$1"
+	[ -n "${SLOT_MANAGER_TOKEN:-}" ] || return 0
+
+	i=0
+	max_wait="${SLOT_VACANT_TIMEOUT_SECONDS:-180}"
+	while [ "$i" -lt "$max_wait" ]; do
+		status="$(fetch_slot_status)"
+		if [ -n "$status" ] && ! slot_occupied "$slot" "$status"; then
+			log info "Slot ${slot} tunnel is vacant on VPS."
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 2
+	done
+
+	log warn "Slot ${slot} still occupied after ${max_wait}s; starting frpc anyway."
+}
+
 resolve_slot() {
 	FRPC_SLOT="${FRPC_SLOT:-auto}"
 
@@ -523,6 +568,7 @@ activate_slot() {
 }
 
 start_frpc() {
+	wait_for_slot_vacant "$FRPC_SLOT"
 	write_frpc_config
 	: > "$FRPC_LOG_FILE"
 	log info "Starting frpc -> ${FRPS_ADDR}:${FRPS_PORT:-7000} slot=${FRPC_SLOT}."
