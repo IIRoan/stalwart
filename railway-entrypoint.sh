@@ -319,6 +319,7 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 25
 remotePort = ${FRPC_SMTP_REMOTE_PORT}
+transport.proxyProtocolVersion = "v2"
 EOF
 
 		if [ "${FRPC_ENABLE_SMTPS_PROXY:-true}" = "true" ]; then
@@ -330,6 +331,7 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 465
 remotePort = ${FRPC_SUBMISSIONS_REMOTE_PORT}
+transport.proxyProtocolVersion = "v2"
 EOF
 		else
 			log info "Skipping SMTPS proxy on port 465."
@@ -344,6 +346,7 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 993
 remotePort = ${FRPC_IMAPS_REMOTE_PORT}
+transport.proxyProtocolVersion = "v2"
 EOF
 		else
 			log info "Skipping IMAPS proxy on port 993."
@@ -358,6 +361,7 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 587
 remotePort = ${FRPC_SUBMISSION_REMOTE_PORT}
+transport.proxyProtocolVersion = "v2"
 EOF
 		fi
 	else
@@ -372,6 +376,7 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 8080
 remotePort = ${FRPC_HTTPS_REMOTE_PORT}
+transport.proxyProtocolVersion = "v2"
 
 [[proxies]]
 name = "http-admin-${FRPC_PROXY_SUFFIX}"
@@ -379,6 +384,7 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 8080
 remotePort = ${FRPC_HTTP_ADMIN_REMOTE_PORT}
+transport.proxyProtocolVersion = "v2"
 EOF
 }
 
@@ -438,12 +444,12 @@ start_frpc() {
 	FRPC_PID=$!
 	log info "Started frpc with pid ${FRPC_PID}."
 
-	# Start a separate frpc process for the STCP visitor (outbound relay tunnel)
-	# This ensures the visitor works even if the main frpc config has issues.
-	# Bind on 127.0.0.1:2525 so Stalwart's relay route (mail.solace.onl:2525)
-	# connects directly to the visitor without needing a dynamic update.
+	# Outbound relay uses an frp STCP visitor. Railway blocks direct outbound SMTP
+	# ports, so Stalwart must connect to a local listener that tunnels over the
+	# existing frpc control connection to Postfix on the VPS.
 	FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
 	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-2525}"
+	FRPC_RELAY_BIND_ADDR="${FRPC_RELAY_BIND_ADDR:-0.0.0.0}"
 	FRPC_RELAY_CONFIG="/tmp/frpc-relay-visitor.toml"
 
 	cat > "$FRPC_RELAY_CONFIG" <<EOF
@@ -459,20 +465,76 @@ name = "relay-postfix-visitor"
 type = "stcp"
 serverName = "relay-postfix"
 secretKey = "${FRPC_RELAY_STCP_KEY}"
-bindAddr = "127.0.0.1"
+bindAddr = "${FRPC_RELAY_BIND_ADDR}"
 bindPort = ${FRPC_RELAY_LOCAL_PORT}
 EOF
 
-	log info "Starting frpc relay visitor to ${FRPS_ADDR}:${FRPS_PORT:-7000} on 127.0.0.1:${FRPC_RELAY_LOCAL_PORT}."
+	log info "Starting frpc relay visitor to ${FRPS_ADDR}:${FRPS_PORT:-7000} on ${FRPC_RELAY_BIND_ADDR}:${FRPC_RELAY_LOCAL_PORT}."
 	/usr/local/bin/frpc -c "$FRPC_RELAY_CONFIG" >> /tmp/frpc-relay-visitor.log 2>&1 &
 	FRPC_RELAY_PID=$!
 	log info "Started frpc relay visitor with pid ${FRPC_RELAY_PID}."
 }
+
+detect_container_ip() {
+	if [ -n "${RELAY_ROUTE_ADDRESS:-}" ]; then
+		printf '%s\n' "$RELAY_ROUTE_ADDRESS"
+		return 0
+	fi
+
+	CONTAINER_IP="$(hostname -i 2>/dev/null | awk '{print $1}')"
+	if [ -z "$CONTAINER_IP" ]; then
+		CONTAINER_IP="$(ip route get 1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
+	fi
+	if [ -z "$CONTAINER_IP" ]; then
+		return 1
+	fi
+	printf '%s\n' "$CONTAINER_IP"
+}
+
+wait_for_stalwart_admin() {
+	ADMIN_READY_TIMEOUT="${ADMIN_READY_TIMEOUT:-30}"
+	elapsed=0
+	while [ "$elapsed" -lt "$ADMIN_READY_TIMEOUT" ]; do
+		if curl -fsS --connect-timeout 2 --max-time 5 "http://127.0.0.1:8080/jmap/session" >/dev/null 2>&1; then
+			return 0
+		fi
+		elapsed=$((elapsed + 1))
+		sleep 1
+	done
+	return 1
+}
+
 update_relay_route() {
-	# The relay route is already configured to point to mail.solace.onl:2525
-	# which resolves to 127.0.0.1:2525 inside the container. The frpc relay
-	# visitor binds on 127.0.0.1:2525, so no dynamic update is needed.
-	log info "Relay route is static (mail.solace.onl:2525 -> 127.0.0.1:2525 via frpc visitor); skipping dynamic update."
+	RELAY_ROUTE_ID="${RELAY_ROUTE_ID:-ivnbzc1aaba9}"
+	RELAY_ROUTE_PORT="${RELAY_ROUTE_PORT:-${FRPC_RELAY_LOCAL_PORT:-2525}}"
+
+	if [ -z "${STALWART_ADMIN_TOKEN:-}" ]; then
+		log warn "STALWART_ADMIN_TOKEN is not set; skipping relay route update."
+		return 0
+	fi
+
+	if ! CONTAINER_IP="$(detect_container_ip)"; then
+		log warn "Could not detect container IP; relay route not updated."
+		return 0
+	fi
+
+	if ! wait_for_stalwart_admin; then
+		log warn "Stalwart admin API did not become ready; relay route not updated."
+		return 0
+	fi
+
+	log info "Updating relay route ${RELAY_ROUTE_ID} to ${CONTAINER_IP}:${RELAY_ROUTE_PORT}."
+	if /usr/local/bin/stalwart-cli \
+		--url "http://127.0.0.1:8080" \
+		--api-key "$STALWART_ADMIN_TOKEN" \
+		update MtaRoute "$RELAY_ROUTE_ID" \
+		--field "address=${CONTAINER_IP}" \
+		--field "port=${RELAY_ROUTE_PORT}" >/dev/null 2>&1; then
+		log info "Relay route updated to ${CONTAINER_IP}:${RELAY_ROUTE_PORT}."
+		return 0
+	fi
+
+	log warn "Failed to update relay route via stalwart-cli."
 	return 0
 }
 

@@ -24,7 +24,7 @@ submission inet n       -       n       -       -       smtpd
   -o smtpd_relay_restrictions=permit_sasl_authenticated,reject_unauth_destination
   -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
   -o local_header_rewrite_clients=static:all
-2525      inet  n       -       n       -       -       smtpd
+127.0.0.1:2525 inet n       -       n       -       -       smtpd
   -o syslog_name=postfix/submission-2525
   -o smtpd_forbid_unauth_pipelining=no
   -o smtpd_tls_security_level=encrypt
