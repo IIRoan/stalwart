@@ -56,7 +56,7 @@ Required Railway environment variables:
 
 Railway healthchecks `GET /healthz/ready` on `PORT` (8090). Stalwart's real HTTP
 listener on 8080 only answers through HAProxy with PROXY protocol, so a small
-`socat` health responder serves Railway directly.
+Python health server in the entrypoint serves Railway directly.
 The container does **not** call the VPS to switch slots or update relay routes.
 
 Outbound relay (`mailsend.solace.onl:587`) is configured once on the VPS — see

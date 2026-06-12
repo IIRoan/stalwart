@@ -2,12 +2,12 @@ FROM stalwartlabs/stalwart:v0.16
 
 ARG FRPC_VERSION=0.69.1
 ARG STALWART_CLI_VERSION=1.0.8
-ARG BUILD_TIMESTAMP=2026-06-12-16
+ARG BUILD_TIMESTAMP=2026-06-12-17
 
 USER root
 
 RUN apt-get update \
-    && apt-get install -yq --no-install-recommends curl iproute2 postgresql-client socat xz-utils \
+    && apt-get install -yq --no-install-recommends curl iproute2 postgresql-client python3-minimal xz-utils \
     && curl -fsSL "https://github.com/fatedier/frp/releases/download/v${FRPC_VERSION}/frp_${FRPC_VERSION}_linux_amd64.tar.gz" \
         | tar xz -C /tmp \
     && mv "/tmp/frp_${FRPC_VERSION}_linux_amd64/frpc" /usr/local/bin/frpc \

@@ -231,8 +231,30 @@ wait_for_stalwart_ports() {
 
 start_health_server() {
 	log info "Starting Railway health listener on 0.0.0.0:${HEALTH_PORT}/healthz/ready."
-	socat "TCP-LISTEN:${HEALTH_PORT},bind=0.0.0.0,reuseaddr,fork" \
-		"OPEN:/etc/stalwart/railway-health.http" &
+	HEALTH_PORT="$HEALTH_PORT" python3 -u <<'PY' &
+import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+port = int(os.environ["HEALTH_PORT"])
+body = (
+    b'{"type":"about:blank","title":"OK","status":200,"detail":"OK"}'
+)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, _format, *_args):
+        return
+
+
+ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+PY
 	HEALTH_PID=$!
 
 	i=0
