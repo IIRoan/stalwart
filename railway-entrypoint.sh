@@ -492,8 +492,11 @@ update_relay_route() {
 
 	log info "Detected container IP: ${CONTAINER_IP}. Updating relay route ${RELAY_ROUTE_ID} to ${CONTAINER_IP}:${FRPC_RELAY_LOCAL_PORT}."
 
+	# Wait a moment for Stalwart management API to become ready
+	sleep 3
+
 	# Use Stalwart management API to update the relay route address
-	for attempt in 1 2 3 4 5; do
+	for attempt in $(seq 1 15); do
 		if response="$(curl -fsS -X PATCH \
 			-H "Authorization: Bearer ${STALWART_ADMIN_TOKEN}" \
 			-H "Content-Type: application/json" \
@@ -502,11 +505,13 @@ update_relay_route() {
 			log info "Relay route updated successfully: ${response}"
 			return 0
 		fi
-		log warn "Relay route update attempt ${attempt} failed: ${response}"
-		sleep 2
+		log warn "Relay route update attempt ${attempt}/15 failed: ${response}"
+		if [ "$attempt" -lt 15 ]; then
+			sleep 2
+		fi
 	done
 
-	log error "Failed to update relay route after 5 attempts."
+	log error "Failed to update relay route after 15 attempts."
 	return 1
 }
 
