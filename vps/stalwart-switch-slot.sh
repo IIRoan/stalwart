@@ -97,9 +97,9 @@ set_slot_weights() {
 }
 
 finalize_active_slot() {
-	slot="$1"
+	target_slot="$1"
 
-	case "$slot" in
+	case "$target_slot" in
 		blue)
 			set_slot_state blue ready
 			set_slot_state green maint
@@ -112,7 +112,7 @@ finalize_active_slot() {
 			;;
 	esac
 
-	printf '%s\n' "$slot" | tee "$ACTIVE_SLOT_FILE" >/dev/null
+	printf '%s\n' "$target_slot" | tee "$ACTIVE_SLOT_FILE" >/dev/null
 }
 
 wait_for_tcp_port() {
@@ -131,19 +131,19 @@ wait_for_tcp_port() {
 }
 
 wait_for_http_ready() {
-	port="$1"
+	# Raw frp admin ports require PROXY protocol; HAProxy health checks handle that.
+	slot="$1"
 	i=0
 	while [ "$i" -lt "$HTTP_READY_TIMEOUT" ]; do
-		if curl -fsS --max-time 3 \
-			"http://127.0.0.1:${port}/jmap/session" \
-			-H "Host: ${HTTP_HEALTHCHECK_HOST}" >/dev/null 2>&1; then
-			return 0
-		fi
+		status="$(get_server_status bk_https "$slot")"
+		case "$status" in
+			UP|UP\ *) return 0 ;;
+		esac
 		i=$((i + 1))
 		sleep 1
 	done
 
-	echo "HTTP health check failed on port $port for slot $TARGET_SLOT." >&2
+	echo "HTTP health check failed for slot $slot in HAProxy." >&2
 	return 1
 }
 
@@ -196,13 +196,13 @@ fi
 
 wait_for_tcp_port "$SMTP_PORT"
 wait_for_tcp_port "$HTTP_PORT"
-wait_for_http_ready "$HTTP_PORT"
 
 CURRENT_SLOT="$(read_active_slot)"
 
 if [ "$CURRENT_SLOT" = "$TARGET_SLOT" ]; then
 	set_slot_state "$TARGET_SLOT" ready
 	wait_for_slot_up "$TARGET_SLOT"
+	wait_for_http_ready "$TARGET_SLOT"
 	finalize_active_slot "$TARGET_SLOT"
 	echo "Active slot already set to $TARGET_SLOT."
 	exit 0
@@ -213,6 +213,7 @@ OTHER_SLOT="$CURRENT_SLOT"
 set_slot_state "$TARGET_SLOT" ready
 set_slot_state "$OTHER_SLOT" ready
 wait_for_slot_up "$TARGET_SLOT"
+wait_for_http_ready "$TARGET_SLOT"
 
 step_sleep=$((TRANSITION_SECONDS / TRANSITION_STEPS))
 if [ "$step_sleep" -lt 1 ]; then

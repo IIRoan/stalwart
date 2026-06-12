@@ -48,15 +48,15 @@ Required Railway environment variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `STALWART_ADMIN_TOKEN` | API token for relay-route updates at startup |
-| `STALWART_BOOT_DELAY_SECONDS` | Delay before starting frpc (default: `5`) |
-| `STATUS_LOG_INTERVAL_SECONDS` | Supervisor status log interval (default: `30`) |
-| `TASK_RETRY_SECONDS` | Reserved for future use (slot/relay retry every 1s when HTTP up) |
-| `RELAY_ROUTE_ADDRESS` | Relay host (default: `mailsend.solace.onl`) |
-| `RELAY_ROUTE_PORT` | Relay port (default: `587`) |
-| `RELAY_ROUTE_ID` | MtaRoute id (default: `ivnbzc1aaba9`) |
-| `FRPS_ADDR` / `FRPC_TOKEN` | frp control plane (inbound only) |
-| `SLOT_MANAGER_TOKEN` | Blue/green slot activation |
+| `FRPS_ADDR` / `FRPC_TOKEN` | frp control plane |
+| `FRPC_SLOT` | `blue`, `green`, or `auto` (picks inactive side via `/slot-manager/active`) |
+| `STALWART_BOOT_DELAY_SECONDS` | Delay before starting frpc (default: `3`) |
+
+Railway health checks use `healthcheckPath` / `healthcheckPort` in `railway.toml`.
+The container does **not** call the VPS to switch slots or update relay routes.
+
+Outbound relay (`mailsend.solace.onl:587`) is configured once on the VPS — see
+`vps/OUTBOUND_RELAY.md`.
 
 ## Services
 
@@ -104,11 +104,19 @@ blue/green FRP proxies (e.g. `10025`, `11025`, `10443`, `11443`, etc.).
 - **Config path (repo):** `vps/stalwart-slot-manager.py`
 - **Status:** `systemctl status stalwart-slot-manager`
 
+### 5. stalwart-slot-watcher
+
+- **Role:** Promotes blue/green when a Railway frpc tunnel is healthy (replaces
+  slot activation from inside the Railway container).
+- **Config path (repo):** `vps/stalwart-slot-watcher.py`
+- **Config path (VPS):** `/usr/local/bin/stalwart-slot-watcher`
+- **Status:** `systemctl status stalwart-slot-watcher`
+
 ## Quick Commands
 
 ```bash
 # Check all services
-systemctl status haproxy frps frpc-relay postfix stalwart-slot-manager
+systemctl status haproxy frps frpc-relay postfix stalwart-slot-manager stalwart-slot-watcher
 
 # Reload HAProxy after config changes
 sudo haproxy -c -f /etc/haproxy/haproxy.cfg && sudo systemctl reload haproxy

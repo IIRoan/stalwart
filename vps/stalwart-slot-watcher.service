@@ -1,0 +1,15 @@
+[Unit]
+Description=Promote Railway blue/green slots when frpc tunnels are healthy
+After=network-online.target frps.service haproxy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/stalwart-slot-watcher
+Restart=always
+RestartSec=5
+Environment=FRPS_DASHBOARD_URL=http://127.0.0.1:7500
+Environment=HTTP_HEALTHCHECK_HOST=mail.solace.onl
+
+[Install]
+WantedBy=multi-user.target

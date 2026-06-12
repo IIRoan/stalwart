@@ -3,5 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+healthcheckPath = "/jmap/session"
+healthcheckPort = 8080
 overlapSeconds = 60
 drainingSeconds = 90
