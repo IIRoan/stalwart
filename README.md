@@ -157,9 +157,9 @@ slot when the active tunnel goes down, not when both slots are up during overlap
 | `RELAY_ROUTE_ID` | no | Stalwart MtaRoute id (default `ivnbzc1aaba9`) |
 | `RELAY_BIND_ADDR` | no | Override container private IP for relay route |
 
-Relay route updates use Stalwart's **local** management API on
-`http://127.0.0.1:8080` inside the container. The Railway service has no public
-URL; `mail.solace.onl` is the VPS edge and must not be used for startup config.
+Relay route and management API calls use the container's **private IP** on port
+8080 (Stalwart rejects loopback, same as relay targets). The Railway service
+has no public URL; `mail.solace.onl` is the VPS edge only.
 
 ## Healthchecks
 

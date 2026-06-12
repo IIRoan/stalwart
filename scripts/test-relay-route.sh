@@ -62,16 +62,17 @@ export PATH="$MOCK_BIN:$PATH"
 export ROUTE_OK="$route_ok"
 export ROUTE_BAD="$route_bad"
 
-eval "$(sed -n '/^stalwart_management_url()/,/^}/p; /^relay_route_matches()/,/^}/p' "$ENTRYPOINT")"
+eval "$(sed -n '/^detect_container_ip()/,/^}/p; /^stalwart_management_url()/,/^}/p; /^relay_route_matches()/,/^}/p' "$ENTRYPOINT")"
 
 STALWART_HTTP_PORT=8080
 FRPC_RELAY_LOCAL_PORT=2525
 RELAY_ROUTE_ID=ivnbzc1aaba9
 STALWART_ADMIN_TOKEN=dummy
+RELAY_BIND_ADDR=10.250.11.177
 
 url="$(stalwart_management_url)"
-[ "$url" = "http://127.0.0.1:8080" ] || fail "stalwart_management_url"
-pass "stalwart_management_url returns local management URL"
+[ "$url" = "http://10.250.11.177:8080" ] || fail "stalwart_management_url"
+pass "stalwart_management_url uses container IP (not loopback)"
 
 relay_route_matches "10.250.11.177" || fail "relay_route_matches positive case"
 pass "relay_route_matches accepts matching route"

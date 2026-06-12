@@ -485,7 +485,8 @@ wait_for_relay_port() {
 }
 
 stalwart_management_url() {
-	printf 'http://127.0.0.1:%s\n' "${STALWART_HTTP_PORT}"
+	# Stalwart rejects loopback for several subsystems; use the container IP.
+	printf 'http://%s:%s\n' "$(detect_container_ip)" "${STALWART_HTTP_PORT}"
 }
 
 wait_for_stalwart_management() {
