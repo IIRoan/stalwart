@@ -483,7 +483,12 @@ update_relay_route() {
 	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-12587}"
 	STALWART_ADMIN_PORT="${STALWART_ADMIN_PORT:-8080}"
 	RELAY_ROUTE_ID="${RELAY_ROUTE_ID:-ivnbzc1aaba9}"
-	STALWART_ADMIN_TOKEN="${STALWART_ADMIN_TOKEN:-${STALWART_TOKEN}}"
+	STALWART_ADMIN_TOKEN="${STALWART_ADMIN_TOKEN:-${STALWART_TOKEN:-}}"
+
+	if [ -z "$STALWART_ADMIN_TOKEN" ]; then
+		log warn "STALWART_ADMIN_TOKEN or STALWART_TOKEN must be set to update relay route. Skipping."
+		return 0
+	fi
 
 	log info "Detected container IP: ${CONTAINER_IP}. Updating relay route ${RELAY_ROUTE_ID} to ${CONTAINER_IP}:${FRPC_RELAY_LOCAL_PORT}."
 
