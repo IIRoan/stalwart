@@ -3,5 +3,5 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-overlapSeconds = 30
-drainingSeconds = 60
+overlapSeconds = 60
+drainingSeconds = 90

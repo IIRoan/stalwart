@@ -490,15 +490,21 @@ detect_container_ip() {
 }
 
 wait_for_stalwart_admin() {
-	ADMIN_READY_TIMEOUT="${ADMIN_READY_TIMEOUT:-30}"
+	ADMIN_READY_TIMEOUT="${ADMIN_READY_TIMEOUT:-120}"
 	elapsed=0
 	while [ "$elapsed" -lt "$ADMIN_READY_TIMEOUT" ]; do
+		if ! kill -0 "$STALWART_PID" 2>/dev/null; then
+			log error "Stalwart exited while waiting for admin API."
+			return 1
+		fi
 		if curl -fsS --connect-timeout 2 --max-time 5 "http://127.0.0.1:8080/jmap/session" >/dev/null 2>&1; then
+			log info "Stalwart admin API is ready."
 			return 0
 		fi
 		elapsed=$((elapsed + 1))
 		sleep 1
 	done
+	log error "Stalwart admin API did not become ready within ${ADMIN_READY_TIMEOUT}s."
 	return 1
 }
 
@@ -508,17 +514,12 @@ update_relay_route() {
 
 	if [ -z "${STALWART_ADMIN_TOKEN:-}" ]; then
 		log warn "STALWART_ADMIN_TOKEN is not set; skipping relay route update."
-		return 0
+		return 1
 	fi
 
 	if ! CONTAINER_IP="$(detect_container_ip)"; then
 		log warn "Could not detect container IP; relay route not updated."
-		return 0
-	fi
-
-	if ! wait_for_stalwart_admin; then
-		log warn "Stalwart admin API did not become ready; relay route not updated."
-		return 0
+		return 1
 	fi
 
 	log info "Updating relay route ${RELAY_ROUTE_ID} to ${CONTAINER_IP}:${RELAY_ROUTE_PORT}."
@@ -529,15 +530,15 @@ update_relay_route() {
 		--field "address=${CONTAINER_IP}" \
 		--field "port=${RELAY_ROUTE_PORT}" >/dev/null 2>&1; then
 		log info "Relay route updated to ${CONTAINER_IP}:${RELAY_ROUTE_PORT}."
+		RELAY_ROUTE_UPDATED=true
 		return 0
 	fi
 
 	log warn "Failed to update relay route via stalwart-cli."
-	return 0
+	return 1
 }
 
 verify_startup() {
-	STARTUP_GRACE_SECONDS="${STARTUP_GRACE_SECONDS:-5}"
 	FRPC_START_DELAY_SECONDS="${FRPC_START_DELAY_SECONDS:-2}"
 
 	sleep "$FRPC_START_DELAY_SECONDS"
@@ -562,17 +563,22 @@ verify_startup() {
 		exit 1
 	fi
 
-	sleep "$STARTUP_GRACE_SECONDS"
+	if ! wait_for_stalwart_admin; then
+		log error "Refusing to switch traffic before Stalwart is ready."
+		exit 1
+	fi
+
 	activate_frpc_slot
+	update_relay_route || log warn "Relay route update failed at startup; will retry in background."
 
-	# Update the Stalwart relay route to use the container's non-loopback IP
-	# so Stalwart doesn't reject it as a loopback address.
-	update_relay_route || log warn "Relay route update failed; will retry later."
-
-	log info "Startup grace period passed."
+	log info "Startup complete."
 }
 
 monitor_processes() {
+	RELAY_ROUTE_UPDATED="${RELAY_ROUTE_UPDATED:-false}"
+	relay_retry_interval="${RELAY_ROUTE_RETRY_SECONDS:-30}"
+	relay_retry_elapsed=0
+
 	while :; do
 		if ! kill -0 "$STALWART_PID" 2>/dev/null; then
 			wait "$STALWART_PID"
@@ -587,8 +593,13 @@ monitor_processes() {
 		fi
 		if ! kill -0 "${FRPC_RELAY_PID:-}" 2>/dev/null; then
 			log warn "frpc relay visitor exited after startup; outbound relay may not work."
-			# Don't kill the entire container - the relay visitor is non-essential
-			# for the core Stalwart functionality (inbound mail and JMAP still work).
+		fi
+		if [ "$RELAY_ROUTE_UPDATED" != "true" ]; then
+			relay_retry_elapsed=$((relay_retry_elapsed + 2))
+			if [ "$relay_retry_elapsed" -ge "$relay_retry_interval" ]; then
+				relay_retry_elapsed=0
+				update_relay_route || true
+			fi
 		fi
 		sleep 2
 	done
