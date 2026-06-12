@@ -44,9 +44,9 @@ tunnel, not a public SMTP hop from Railway to the VPS.
 ```
 Stalwart (Railway)
     |
-    | relay route -> <container-ip>:2525
+    | relay route -> relay.internal:2525
     v
-frpc STCP visitor (binds 0.0.0.0:2525 in Railway container)
+frpc STCP visitor (single frpc process, binds 0.0.0.0:2525 in Railway container)
     |
     v
 frps STCP proxy (VPS frpc-relay service)
@@ -58,9 +58,11 @@ Postfix on 127.0.0.1:2525 (SASL-authenticated submission relay)
 Internet (from VPS public IP / PTR)
 ```
 
-At container startup, `railway-entrypoint.sh` uses `stalwart-cli` to set
-the relay route address to the container's private IP. Stalwart refuses
-loopback relay targets, so `127.0.0.1` cannot be used.
+At container startup, `railway-entrypoint.sh` maps `relay.internal` to the
+container private IP in `/etc/hosts`, runs the STCP visitor in the same
+`frpc` process, and uses `stalwart-cli` to point the relay route at
+`relay.internal:2525`. Stalwart refuses loopback relay targets, so
+`127.0.0.1` cannot be used.
 
 Required Railway environment variables:
 

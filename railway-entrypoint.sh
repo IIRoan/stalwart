@@ -230,9 +230,6 @@ cleanup() {
 	if [ -n "${FRPC_PID:-}" ] && kill -0 "$FRPC_PID" 2>/dev/null; then
 		kill "$FRPC_PID" 2>/dev/null || true
 	fi
-	if [ -n "${FRPC_RELAY_PID:-}" ] && kill -0 "$FRPC_RELAY_PID" 2>/dev/null; then
-		kill "$FRPC_RELAY_PID" 2>/dev/null || true
-	fi
 	if [ -n "${STALWART_PID:-}" ] && kill -0 "$STALWART_PID" 2>/dev/null; then
 		kill "$STALWART_PID" 2>/dev/null || true
 	fi
@@ -275,6 +272,9 @@ build_frpc_config() {
 	FRPC_CONFIG="${FRPC_CONFIG:-/tmp/frpc.toml}"
 	FRPC_ENABLE_SUBMISSION_PROXY="${FRPC_ENABLE_SUBMISSION_PROXY:-true}"
 	FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
+	FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
+	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-2525}"
+	FRPC_RELAY_BIND_ADDR="${FRPC_RELAY_BIND_ADDR:-0.0.0.0}"
 
 	case "$FRPC_SLOT" in
 		blue)
@@ -383,6 +383,14 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 8080
 remotePort = ${FRPC_HTTP_ADMIN_REMOTE_PORT}
+
+[[visitors]]
+name = "relay-postfix-visitor"
+type = "stcp"
+serverName = "relay-postfix"
+secretKey = "${FRPC_RELAY_STCP_KEY}"
+bindAddr = "${FRPC_RELAY_BIND_ADDR}"
+bindPort = ${FRPC_RELAY_LOCAL_PORT}
 EOF
 }
 
@@ -440,45 +448,10 @@ start_frpc() {
 	: > "$FRPC_LOG_FILE"
 	/usr/local/bin/frpc -c "${FRPC_CONFIG:-/tmp/frpc.toml}" >> "$FRPC_LOG_FILE" 2>&1 &
 	FRPC_PID=$!
-	log info "Started frpc with pid ${FRPC_PID}."
-
-	# Outbound relay uses an frp STCP visitor. Railway blocks direct outbound SMTP
-	# ports, so Stalwart must connect to a local listener that tunnels over the
-	# existing frpc control connection to Postfix on the VPS.
-	FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
-	FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-2525}"
-	FRPC_RELAY_BIND_ADDR="${FRPC_RELAY_BIND_ADDR:-0.0.0.0}"
-	FRPC_RELAY_CONFIG="/tmp/frpc-relay-visitor.toml"
-
-	cat > "$FRPC_RELAY_CONFIG" <<EOF
-serverAddr = "${FRPS_ADDR}"
-serverPort = ${FRPS_PORT:-7000}
-
-[auth]
-method = "token"
-token = "${FRPC_TOKEN}"
-
-[[visitors]]
-name = "relay-postfix-visitor"
-type = "stcp"
-serverName = "relay-postfix"
-secretKey = "${FRPC_RELAY_STCP_KEY}"
-bindAddr = "${FRPC_RELAY_BIND_ADDR}"
-bindPort = ${FRPC_RELAY_LOCAL_PORT}
-EOF
-
-	log info "Starting frpc relay visitor to ${FRPS_ADDR}:${FRPS_PORT:-7000} on ${FRPC_RELAY_BIND_ADDR}:${FRPC_RELAY_LOCAL_PORT}."
-	/usr/local/bin/frpc -c "$FRPC_RELAY_CONFIG" >> /tmp/frpc-relay-visitor.log 2>&1 &
-	FRPC_RELAY_PID=$!
-	log info "Started frpc relay visitor with pid ${FRPC_RELAY_PID}."
+	log info "Started frpc with pid ${FRPC_PID} (includes outbound STCP visitor on ${FRPC_RELAY_BIND_ADDR}:${FRPC_RELAY_LOCAL_PORT})."
 }
 
 detect_container_ip() {
-	if [ -n "${RELAY_ROUTE_ADDRESS:-}" ]; then
-		printf '%s\n' "$RELAY_ROUTE_ADDRESS"
-		return 0
-	fi
-
 	CONTAINER_IP="$(hostname -i 2>/dev/null | awk '{print $1}')"
 	if [ -z "$CONTAINER_IP" ]; then
 		CONTAINER_IP="$(ip route get 1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
@@ -487,6 +460,40 @@ detect_container_ip() {
 		return 1
 	fi
 	printf '%s\n' "$CONTAINER_IP"
+}
+
+configure_relay_hosts() {
+	RELAY_HOST="${RELAY_ROUTE_HOSTNAME:-relay.internal}"
+
+	if [ -n "${RELAY_ROUTE_ADDRESS:-}" ]; then
+		CONTAINER_IP="$RELAY_ROUTE_ADDRESS"
+	elif ! CONTAINER_IP="$(detect_container_ip)"; then
+		log warn "Could not detect container IP for ${RELAY_HOST} hosts entry."
+		return 1
+	fi
+
+	if grep -q "[[:space:]]$RELAY_HOST$" /etc/hosts 2>/dev/null; then
+		grep -v "[[:space:]]$RELAY_HOST$" /etc/hosts > /tmp/hosts.relay
+	else
+		cp /etc/hosts /tmp/hosts.relay
+	fi
+	printf '%s %s\n' "$CONTAINER_IP" "$RELAY_HOST" >> /tmp/hosts.relay
+
+	if ! cp /tmp/hosts.relay /etc/hosts 2>/dev/null; then
+		log warn "Could not update /etc/hosts with ${RELAY_HOST} -> ${CONTAINER_IP}."
+		return 1
+	fi
+
+	log info "Mapped ${RELAY_HOST} to ${CONTAINER_IP} in /etc/hosts."
+	return 0
+}
+
+relay_route_address() {
+	if [ -n "${RELAY_ROUTE_ADDRESS:-}" ]; then
+		printf '%s\n' "$RELAY_ROUTE_ADDRESS"
+		return 0
+	fi
+	printf '%s\n' "${RELAY_ROUTE_HOSTNAME:-relay.internal}"
 }
 
 wait_for_stalwart_admin() {
@@ -517,19 +524,16 @@ update_relay_route() {
 		return 1
 	fi
 
-	if ! CONTAINER_IP="$(detect_container_ip)"; then
-		log warn "Could not detect container IP; relay route not updated."
-		return 1
-	fi
+	RELAY_ADDRESS="$(relay_route_address)"
 
-	log info "Updating relay route ${RELAY_ROUTE_ID} to ${CONTAINER_IP}:${RELAY_ROUTE_PORT}."
+	log info "Updating relay route ${RELAY_ROUTE_ID} to ${RELAY_ADDRESS}:${RELAY_ROUTE_PORT}."
 	if /usr/local/bin/stalwart-cli \
 		--url "http://127.0.0.1:8080" \
 		--api-key "$STALWART_ADMIN_TOKEN" \
 		update MtaRoute "$RELAY_ROUTE_ID" \
-		--field "address=${CONTAINER_IP}" \
+		--field "address=${RELAY_ADDRESS}" \
 		--field "port=${RELAY_ROUTE_PORT}" >/dev/null 2>&1; then
-		log info "Relay route updated to ${CONTAINER_IP}:${RELAY_ROUTE_PORT}."
+		log info "Relay route updated to ${RELAY_ADDRESS}:${RELAY_ROUTE_PORT}."
 		RELAY_ROUTE_UPDATED=true
 		return 0
 	fi
@@ -569,6 +573,7 @@ verify_startup() {
 	fi
 
 	activate_frpc_slot
+	configure_relay_hosts || log warn "Relay hosts mapping failed; relay route may use stale address."
 	update_relay_route || log warn "Relay route update failed at startup; will retry in background."
 
 	log info "Startup complete."
@@ -590,9 +595,6 @@ monitor_processes() {
 			kill "$STALWART_PID" 2>/dev/null || true
 			wait "$STALWART_PID" || true
 			exit 1
-		fi
-		if ! kill -0 "${FRPC_RELAY_PID:-}" 2>/dev/null; then
-			log warn "frpc relay visitor exited after startup; outbound relay may not work."
 		fi
 		if [ "$RELAY_ROUTE_UPDATED" != "true" ]; then
 			relay_retry_elapsed=$((relay_retry_elapsed + 2))
