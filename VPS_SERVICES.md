@@ -50,9 +50,11 @@ Required Railway environment variables:
 |----------|---------|
 | `FRPS_ADDR` / `FRPC_TOKEN` | frp control plane |
 | `FRPC_SLOT` | `blue`, `green`, or `auto` (picks inactive side via `/slot-manager/active`) |
+| `PORT` | **Set to `8080`** so Railway healthchecks hit Stalwart's HTTP listener |
 | `STALWART_BOOT_DELAY_SECONDS` | Delay before starting frpc (default: `3`) |
 
-Railway health checks use `healthcheckPath` / `healthcheckPort` in `railway.toml`.
+Railway healthchecks `GET /healthz/ready` on the `PORT` variable (see `railway.toml`).
+Stalwart must accept `Host: healthcheck.railway.app` (Railway's healthcheck hostname).
 The container does **not** call the VPS to switch slots or update relay routes.
 
 Outbound relay (`mailsend.solace.onl:587`) is configured once on the VPS — see

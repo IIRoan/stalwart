@@ -22,12 +22,10 @@ Create an **A record**:
 |------|------|-------|
 | `mailsend.solace.onl` | A | `193.180.211.139` |
 
-Until DNS propagates, set on Railway:
+Until DNS propagates, use the VPS IP (`193.180.211.139`) as the relay address in
+the Stalwart MtaRoute below.
 
-```bash
-RELAY_ROUTE_ADDRESS=193.180.211.139
-RELAY_ROUTE_PORT=587
-```
+Configure the relay route **once on the VPS** (not from the Railway container).
 
 ## Stalwart relay route
 
