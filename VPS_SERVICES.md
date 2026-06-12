@@ -49,8 +49,9 @@ Required Railway environment variables:
 | Variable | Purpose |
 |----------|---------|
 | `STALWART_ADMIN_TOKEN` | API token for relay-route updates at startup |
-| `ADMIN_READY_TIMEOUT` | Seconds to wait for Stalwart HTTP (default: `300`) |
-| `ADMIN_READY_FATAL` | Exit if Stalwart HTTP is not ready (default: `false`) |
+| `STALWART_BOOT_DELAY_SECONDS` | Delay before starting frpc (default: `5`) |
+| `STATUS_LOG_INTERVAL_SECONDS` | Supervisor status log interval (default: `30`) |
+| `TASK_RETRY_SECONDS` | Reserved for future use (slot/relay retry every 1s when HTTP up) |
 | `RELAY_ROUTE_ADDRESS` | Relay host (default: `mailsend.solace.onl`) |
 | `RELAY_ROUTE_PORT` | Relay port (default: `587`) |
 | `RELAY_ROUTE_ID` | MtaRoute id (default: `ivnbzc1aaba9`) |
