@@ -35,43 +35,24 @@ Stalwart sees the real client IP for SPF, DMARC, rate limiting, and
 logging. HTTP/JMAP proxies omit PROXY protocol because Stalwart's HTTP
 listener rejects it.
 
-### Outbound (VPS relay via STCP)
+### Outbound (VPS submission relay)
 
-Railway blocks direct outbound SMTP connections. Outbound mail therefore
-uses Stalwart's documented relay-route feature over a private frp STCP
-tunnel, not a public SMTP hop from Railway to the VPS.
+Outbound mail goes to **`mailsend.solace.onl:587`** — a dedicated public
+hostname on the VPS running Postfix submission (STARTTLS + SASL). Railway
+dials out on port 587 (allowed); no frp tunnel or container hostname is
+involved.
 
-```
-Stalwart (Railway)
-    |
-    | relay route -> <container-ip>:2525
-    v
-frpc STCP visitor (single frpc process, binds 0.0.0.0:2525 in Railway container)
-    |
-    v
-frps STCP proxy (VPS frpc-relay service)
-    |
-    v
-Postfix on 127.0.0.1:2525 (SASL-authenticated submission relay)
-    |
-    v
-Internet (from VPS public IP / PTR)
-```
-
-At container startup, `railway-entrypoint.sh` runs the STCP visitor in the
-same `frpc` process and uses `stalwart-cli` to point the relay route at the
-container private IP (or Docker hostname, which resolves to that IP) on port
-2525. Stalwart refuses loopback relay targets, so `127.0.0.1` cannot be used.
-Do not use invented hostnames such as `relay.internal` unless they resolve
-inside the container.
+See **`vps/OUTBOUND_RELAY.md`** for DNS, credentials, and troubleshooting.
 
 Required Railway environment variables:
 
 | Variable | Purpose |
 |----------|---------|
 | `STALWART_ADMIN_TOKEN` | API token for relay-route updates at startup |
+| `RELAY_ROUTE_ADDRESS` | Relay host (default: `mailsend.solace.onl`) |
+| `RELAY_ROUTE_PORT` | Relay port (default: `587`) |
 | `RELAY_ROUTE_ID` | MtaRoute id (default: `ivnbzc1aaba9`) |
-| `FRPS_ADDR` / `FRPC_TOKEN` | frp control plane |
+| `FRPS_ADDR` / `FRPC_TOKEN` | frp control plane (inbound only) |
 | `SLOT_MANAGER_TOKEN` | Blue/green slot activation |
 
 ## Services
@@ -103,25 +84,16 @@ for all Railway backends so Stalwart sees the real client IP.
 The `allowPorts` whitelist only permits the exact ports used by the
 blue/green FRP proxies (e.g. `10025`, `11025`, `10443`, `11443`, etc.).
 
-### 3. frpc-relay (Outbound STCP Proxy)
-
-- **Role:** STCP proxy that exposes Postfix to authorized Railway visitors.
-- **Config path (repo):** `vps/frpc-relay.toml`
-- **Config path (VPS):** `/etc/frp/frpc-relay.toml`
-- **Status:** `systemctl status frpc-relay`
-
-Forwards STCP connections to `127.0.0.1:2525` where Postfix listens for
-authenticated relay traffic from Railway.
-
-### 4. Postfix (Outbound Relay)
+### 3. Postfix (Outbound Relay)
 
 - **Role:** Authenticated SMTP submission relay for Railway-originated mail.
-- **Listen:** `127.0.0.1:2525` only (not public)
+- **Listen:** `0.0.0.0:587` (public submission), `127.0.0.1:2525` (legacy STCP, optional)
+- **Public hostname:** `mailsend.solace.onl` (DNS A → VPS IP)
 - **Config paths (repo):** `vps/postfix-main.cf`, `vps/postfix-master.cf`
 - **SASL user:** `relay-client@mail.solace.onl`
 - **Status:** `systemctl status postfix`
 
-### 5. stalwart-slot-manager
+### 4. stalwart-slot-manager
 
 - **Role:** Lightweight Python HTTP API that manages the active blue/green
   slot file and triggers HAProxy runtime reconfiguration.
