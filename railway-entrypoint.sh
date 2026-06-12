@@ -273,7 +273,7 @@ EOF
 build_frpc_config() {
 	FRPS_PORT="${FRPS_PORT:-7000}"
 	FRPC_CONFIG="${FRPC_CONFIG:-/tmp/frpc.toml}"
-	FRPC_ENABLE_SUBMISSION_PROXY="${FRPC_ENABLE_SUBMISSION_PROXY:-false}"
+	FRPC_ENABLE_SUBMISSION_PROXY="${FRPC_ENABLE_SUBMISSION_PROXY:-true}"
 	FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
 
 	case "$FRPC_SLOT" in
@@ -321,7 +321,7 @@ localPort = 25
 remotePort = ${FRPC_SMTP_REMOTE_PORT}
 EOF
 
-		if [ "${FRPC_ENABLE_SMTPS_PROXY:-false}" = "true" ]; then
+		if [ "${FRPC_ENABLE_SMTPS_PROXY:-true}" = "true" ]; then
 			cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
@@ -335,7 +335,7 @@ EOF
 			log info "Skipping SMTPS proxy on port 465."
 		fi
 
-		if [ "${FRPC_ENABLE_IMAPS_PROXY:-false}" = "true" ]; then
+		if [ "${FRPC_ENABLE_IMAPS_PROXY:-true}" = "true" ]; then
 			cat >> "$FRPC_CONFIG" <<EOF
 
 [[proxies]]
