@@ -72,7 +72,7 @@ RELAY_BIND_ADDR=10.250.11.177
 
 url="$(stalwart_management_url)"
 [ "$url" = "http://10.250.11.177:8080" ] || fail "stalwart_management_url"
-pass "stalwart_management_url uses container IP (not loopback)"
+pass "stalwart_management_url uses container private IP (not loopback)"
 
 relay_route_matches "10.250.11.177" || fail "relay_route_matches positive case"
 pass "relay_route_matches accepts matching route"

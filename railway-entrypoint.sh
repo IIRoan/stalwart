@@ -464,12 +464,16 @@ detect_container_ip() {
 		return 0
 	fi
 
-	ip="$(ip -4 -o addr show scope global 2>/dev/null \
-		| awk '!/127\.0\.0\.1/ {print $4}' \
-		| cut -d/ -f1 \
-		| head -1)"
-	[ -n "$ip" ] || die "Could not detect container IP for relay route."
-	printf '%s\n' "$ip"
+	for ip in $(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1); do
+		case "$ip" in
+			10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*)
+				printf '%s\n' "$ip"
+				return 0
+				;;
+		esac
+	done
+
+	die "Could not detect container private IP for relay route."
 }
 
 wait_for_relay_port() {
@@ -485,7 +489,7 @@ wait_for_relay_port() {
 }
 
 stalwart_management_url() {
-	# Stalwart rejects loopback for several subsystems; use the container IP.
+	# Stalwart HTTP on :8080 is reachable on the container private IP, not loopback.
 	printf 'http://%s:%s\n' "$(detect_container_ip)" "${STALWART_HTTP_PORT}"
 }
 
@@ -494,10 +498,11 @@ wait_for_stalwart_management() {
 
 	stalwart_url="$(stalwart_management_url)"
 	i=0
-	max_wait="${STALWART_MANAGEMENT_TIMEOUT_SECONDS:-120}"
-	while [ "$i" -lt "$max_wait" ]; do
-		if stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-			get MtaRoute "$RELAY_ROUTE_ID" >/dev/null 2>&1; then
+	max_seconds="${STALWART_MANAGEMENT_TIMEOUT_SECONDS:-120}"
+	while [ "$((i * 2))" -lt "$max_seconds" ]; do
+		if curl -fsSL --max-time 2 \
+			-H "Authorization: Bearer ${STALWART_ADMIN_TOKEN}" \
+			"${stalwart_url}/jmap/session" >/dev/null 2>&1; then
 			log info "Stalwart management API ready on ${stalwart_url}."
 			return 0
 		fi
@@ -505,7 +510,7 @@ wait_for_stalwart_management() {
 		sleep 2
 	done
 
-	die "Stalwart management API did not become ready within ${max_wait}s."
+	die "Stalwart management API did not become ready within ${max_seconds}s (${stalwart_url})."
 }
 
 relay_route_matches() {
@@ -526,8 +531,6 @@ update_relay_route() {
 
 	relay_addr="$(detect_container_ip)"
 	stalwart_url="$(stalwart_management_url)"
-
-	wait_for_stalwart_management
 
 	i=0
 	max_attempts="${RELAY_ROUTE_UPDATE_ATTEMPTS:-15}"
@@ -635,6 +638,7 @@ write_store_config
 resolve_slot
 start_health_server
 start_stalwart
+wait_for_stalwart_management
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
 start_frpc
 mark_health_ready
