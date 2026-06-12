@@ -3,7 +3,9 @@
 set -eu
 
 FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
-HTTP_PORT="${STALWART_HTTP_PORT:-8080}"
+# Railway healthchecks use the PORT variable (set PORT=8080 in service variables).
+HTTP_PORT="${PORT:-${STALWART_HTTP_PORT:-8080}}"
+HEALTHCHECK_HOST="${STALWART_HEALTHCHECK_HOST:-healthcheck.railway.app}"
 
 log() {
 	printf '%s [%s] %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" "$2" >&2
@@ -209,11 +211,28 @@ remotePort = ${admin}
 EOF
 }
 
+wait_for_stalwart_ready() {
+	i=0
+	max_wait="${STALWART_READY_TIMEOUT_SECONDS:-180}"
+	while [ "$i" -lt "$max_wait" ]; do
+		if curl -fsS --max-time 3 \
+			"http://127.0.0.1:${HTTP_PORT}/healthz/ready" \
+			-H "Host: ${HEALTHCHECK_HOST}" >/dev/null 2>&1; then
+			log info "Stalwart ready on :${HTTP_PORT}/healthz/ready."
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	die "Stalwart did not become ready within ${max_wait}s."
+}
+
 start_stalwart() {
 	log info "Starting Stalwart (db=${PGHOST}:${PGPORT}/${PGDATABASE})."
 	/usr/local/bin/stalwart --config /etc/stalwart/config.json 2>&1 &
 	STALWART_PID=$!
 	log info "Stalwart pid=${STALWART_PID}."
+	wait_for_stalwart_ready
 }
 
 start_frpc() {
@@ -236,7 +255,7 @@ start_stalwart
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
 start_frpc
 
-log info "Running (Railway healthcheck on :${HTTP_PORT}/jmap/session; VPS promotes slot when ready)."
+log info "Running (Railway healthcheck on :${HTTP_PORT}/healthz/ready; VPS promotes slot when ready)."
 
 while :; do
 	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
