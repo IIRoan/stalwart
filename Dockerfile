@@ -1,6 +1,7 @@
 FROM stalwartlabs/stalwart:v0.16
 
 ARG FRPC_VERSION=0.69.1
+ARG BUILD_TIMESTAMP=2026-06-12
 
 USER root
 
