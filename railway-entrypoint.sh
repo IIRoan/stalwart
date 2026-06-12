@@ -484,6 +484,39 @@ wait_for_relay_port() {
 	die "Relay STCP visitor did not open :${FRPC_RELAY_LOCAL_PORT}."
 }
 
+stalwart_management_url() {
+	printf 'http://127.0.0.1:%s\n' "${STALWART_HTTP_PORT}"
+}
+
+wait_for_stalwart_management() {
+	[ -n "${STALWART_ADMIN_TOKEN:-}" ] || return 0
+
+	stalwart_url="$(stalwart_management_url)"
+	i=0
+	max_wait="${STALWART_MANAGEMENT_TIMEOUT_SECONDS:-120}"
+	while [ "$i" -lt "$max_wait" ]; do
+		if stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
+			get MtaRoute "$RELAY_ROUTE_ID" >/dev/null 2>&1; then
+			log info "Stalwart management API ready on ${stalwart_url}."
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 2
+	done
+
+	die "Stalwart management API did not become ready within ${max_wait}s."
+}
+
+relay_route_matches() {
+	relay_addr="$1"
+	stalwart_url="$(stalwart_management_url)"
+
+	route="$(stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
+		get MtaRoute "$RELAY_ROUTE_ID" 2>/dev/null || true)"
+	printf '%s\n' "$route" | grep -q "Address:[[:space:]]*${relay_addr}" \
+		&& printf '%s\n' "$route" | grep -q "Port:[[:space:]]*${FRPC_RELAY_LOCAL_PORT}"
+}
+
 update_relay_route() {
 	[ -n "${STALWART_ADMIN_TOKEN:-}" ] || {
 		log warn "STALWART_ADMIN_TOKEN unset; skipping relay route update."
@@ -491,24 +524,29 @@ update_relay_route() {
 	}
 
 	relay_addr="$(detect_container_ip)"
-	stalwart_url="http://127.0.0.1:${STALWART_HTTP_PORT}"
+	stalwart_url="$(stalwart_management_url)"
+
+	wait_for_stalwart_management
 
 	i=0
-	while [ "$i" -lt 30 ]; do
+	max_attempts="${RELAY_ROUTE_UPDATE_ATTEMPTS:-15}"
+	while [ "$i" -lt "$max_attempts" ]; do
 		if stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
 			update MtaRoute "$RELAY_ROUTE_ID" \
 			--json "{\"address\":\"${relay_addr}\",\"port\":${FRPC_RELAY_LOCAL_PORT}}" \
-			>/dev/null 2>&1; then
-			log info "Relay route -> ${relay_addr}:${FRPC_RELAY_LOCAL_PORT} (id=${RELAY_ROUTE_ID})."
-			stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-				create Action/ReloadSettings >/dev/null 2>&1 || true
+			>/dev/null 2>&1 \
+			&& stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
+				create Action/ReloadSettings >/dev/null 2>&1 \
+			&& relay_route_matches "$relay_addr"; then
+			log info "Relay route -> ${relay_addr}:${FRPC_RELAY_LOCAL_PORT} (id=${RELAY_ROUTE_ID}; local management API)."
 			return 0
 		fi
 		i=$((i + 1))
 		sleep 2
 	done
 
-	log warn "Could not update relay route to ${relay_addr}:${FRPC_RELAY_LOCAL_PORT}."
+	log error "Could not update relay route to ${relay_addr}:${FRPC_RELAY_LOCAL_PORT} via ${stalwart_url}."
+	return 1
 }
 
 wait_for_frpc_proxies() {
@@ -584,7 +622,7 @@ start_frpc() {
 	log info "frpc relay visitor pid=${FRPC_RELAY_PID}."
 	wait_for_relay_port
 	wait_for_frpc_proxies
-	update_relay_route
+	update_relay_route || die "Relay route update failed; refusing to open health gate."
 }
 
 # --- main ---

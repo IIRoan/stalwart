@@ -155,7 +155,11 @@ slot when the active tunnel goes down, not when both slots are up during overlap
 | `FRPC_SLOT` | no | `blue`, `green`, or `auto` (default) |
 | `STALWART_HTTP_PORT` | no | Stalwart HTTP/JMAP port (default `8080`) |
 | `RELAY_ROUTE_ID` | no | Stalwart MtaRoute id (default `ivnbzc1aaba9`) |
-| `RELAY_BIND_ADDR` | no | Override container IP for relay route |
+| `RELAY_BIND_ADDR` | no | Override container private IP for relay route |
+
+Relay route updates use Stalwart's **local** management API on
+`http://127.0.0.1:8080` inside the container. The Railway service has no public
+URL; `mail.solace.onl` is the VPS edge and must not be used for startup config.
 
 ## Healthchecks
 
