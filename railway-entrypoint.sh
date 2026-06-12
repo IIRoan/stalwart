@@ -533,24 +533,23 @@ update_relay_route() {
 
 	i=0
 	max_attempts="${RELAY_ROUTE_UPDATE_ATTEMPTS:-30}"
+	err_log="/tmp/relay-route-update.err"
 	while [ "$i" -lt "$max_attempts" ]; do
 		if stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
 			update MtaRoute "$RELAY_ROUTE_ID" \
 			--field "address=${relay_addr}" \
 			--field "port=${FRPC_RELAY_LOCAL_PORT}" \
-			>/dev/null 2>&1; then
+			2>"$err_log"; then
 			stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
 				create Action/ReloadSettings >/dev/null 2>&1 || true
-			sleep 1
-			if relay_route_matches "$relay_addr"; then
-				log info "Relay route -> ${relay_addr}:${FRPC_RELAY_LOCAL_PORT} (id=${RELAY_ROUTE_ID}; local management API)."
-				return 0
-			fi
+			log info "Relay route -> ${relay_addr}:${FRPC_RELAY_LOCAL_PORT} (id=${RELAY_ROUTE_ID}; via ${stalwart_url})."
+			return 0
 		fi
 		i=$((i + 1))
 		sleep 2
 	done
 
+	tail -n 3 "$err_log" >&2 || true
 	log error "Could not update relay route to ${relay_addr}:${FRPC_RELAY_LOCAL_PORT} via ${stalwart_url}."
 	return 1
 }
