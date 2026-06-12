@@ -4,4 +4,4 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 overlapSeconds = 30
-drainingSeconds = 300
+drainingSeconds = 60
