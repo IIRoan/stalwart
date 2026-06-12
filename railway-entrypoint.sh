@@ -1,11 +1,12 @@
 #!/bin/sh
-# Railway-native entrypoint: start Stalwart + frpc only. VPS handles slot promotion.
+# Railway-native entrypoint: Stalwart + health listener + frpc.
 set -eu
 
 FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
-# Railway healthchecks use the PORT variable (set PORT=8080 in service variables).
-HTTP_PORT="${PORT:-${STALWART_HTTP_PORT:-8080}}"
-HEALTHCHECK_HOST="${STALWART_HEALTHCHECK_HOST:-healthcheck.railway.app}"
+# Stalwart HTTP/JMAP listener (from DB config). frpc tunnels target this port.
+STALWART_HTTP_PORT="${STALWART_HTTP_PORT:-8080}"
+# Railway healthchecks probe PORT (set PORT=8090 in Railway variables).
+HEALTH_PORT="${PORT:-8090}"
 
 log() {
 	printf '%s [%s] %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" "$2" >&2
@@ -83,7 +84,6 @@ resolve_slot() {
 		return 0
 	fi
 
-	# Fast public read: no auth, no blocking switch — VPS watcher promotes the slot.
 	active="$(curl -fsS --connect-timeout 3 --max-time 5 \
 		"${SLOT_MANAGER_URL:-https://mail.solace.onl/slot-manager}/active" \
 		2>/dev/null || true)"
@@ -199,32 +199,43 @@ EOF
 name = "https-${suffix}"
 type = "tcp"
 localIP = "127.0.0.1"
-localPort = ${HTTP_PORT}
+localPort = ${STALWART_HTTP_PORT}
 remotePort = ${https}
 
 [[proxies]]
 name = "http-admin-${suffix}"
 type = "tcp"
 localIP = "127.0.0.1"
-localPort = ${HTTP_PORT}
+localPort = ${STALWART_HTTP_PORT}
 remotePort = ${admin}
 EOF
 }
 
-wait_for_stalwart_ready() {
+port_listening() {
+	ss -tln 2>/dev/null | grep -q ":$1 "
+}
+
+wait_for_stalwart_ports() {
 	i=0
 	max_wait="${STALWART_READY_TIMEOUT_SECONDS:-180}"
 	while [ "$i" -lt "$max_wait" ]; do
-		if curl -fsS --max-time 3 \
-			"http://127.0.0.1:${HTTP_PORT}/healthz/ready" \
-			-H "Host: ${HEALTHCHECK_HOST}" >/dev/null 2>&1; then
-			log info "Stalwart ready on :${HTTP_PORT}/healthz/ready."
+		if port_listening 25 && port_listening "${STALWART_HTTP_PORT}"; then
+			log info "Stalwart listening on :25 and :${STALWART_HTTP_PORT}."
 			return 0
 		fi
 		i=$((i + 1))
 		sleep 1
 	done
-	die "Stalwart did not become ready within ${max_wait}s."
+	die "Stalwart did not open mail/http ports within ${max_wait}s."
+}
+
+start_health_server() {
+	log info "Starting Railway health listener on :${HEALTH_PORT}/healthz/ready."
+	while true; do
+		socat "TCP-LISTEN:${HEALTH_PORT},bind=[::],reuseaddr,fork" \
+			"OPEN:/etc/stalwart/railway-health.http" 2>/dev/null || sleep 1
+	done &
+	HEALTH_PID=$!
 }
 
 start_stalwart() {
@@ -232,7 +243,7 @@ start_stalwart() {
 	/usr/local/bin/stalwart --config /etc/stalwart/config.json 2>&1 &
 	STALWART_PID=$!
 	log info "Stalwart pid=${STALWART_PID}."
-	wait_for_stalwart_ready
+	wait_for_stalwart_ports
 }
 
 start_frpc() {
@@ -252,15 +263,19 @@ start_frpc() {
 write_store_config
 resolve_slot
 start_stalwart
+start_health_server
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
 start_frpc
 
-log info "Running (Railway healthcheck on :${HTTP_PORT}/healthz/ready; VPS promotes slot when ready)."
+log info "Running (Railway health :${HEALTH_PORT}/healthz/ready; Stalwart :${STALWART_HTTP_PORT}; VPS promotes slot)."
 
 while :; do
 	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
 		wait "$STALWART_PID" 2>/dev/null || true
 		die "Stalwart exited."
+	fi
+	if ! kill -0 "$HEALTH_PID" 2>/dev/null; then
+		die "Health listener exited."
 	fi
 	if ! kill -0 "$FRPC_PID" 2>/dev/null; then
 		tail -n 20 "$FRPC_LOG_FILE" >&2 || true

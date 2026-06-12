@@ -1,0 +1,6 @@
+HTTP/1.1 200 OK
+Content-Type: application/json
+Connection: close
+Content-Length: 62
+
+{"type":"about:blank","title":"OK","status":200,"detail":"OK"}
