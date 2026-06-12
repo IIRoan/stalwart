@@ -84,10 +84,36 @@ log_file_tail() {
 	path="$2"
 	lines="${3:-40}"
 	if [ -f "$path" ]; then
-		log info "Last ${lines} lines of ${label} (${path}):"
-		tail -n "$lines" "$path" >&2 || true
+		log info "Last ${lines} lines of ${label} (${path}, $(wc -c <"$path" 2>/dev/null || echo 0) bytes):"
+		if [ "$(wc -c <"$path" 2>/dev/null || echo 0)" -gt 0 ]; then
+			tail -n "$lines" "$path" >&2 || true
+		else
+			log warn "${label} log file exists but is empty."
+		fi
 	else
 		log warn "${label} log not found at ${path}."
+	fi
+}
+
+log_stalwart_log_dir() {
+	log_dir="${STALWART_LOG_DIR:-/var/log/stalwart}"
+	if [ ! -d "$log_dir" ]; then
+		log warn "Stalwart log directory not found at ${log_dir}."
+		return 0
+	fi
+	log info "Stalwart log directory ${log_dir}:"
+	ls -la "$log_dir" >&2 || true
+	latest_log="$(ls -1t "$log_dir"/*.log 2>/dev/null | head -n 1 || true)"
+	if [ -n "$latest_log" ]; then
+		log_file_tail "stalwart-file" "$latest_log" 30
+	fi
+}
+
+log_postgres_probe() {
+	if command -v pg_isready >/dev/null 2>&1; then
+		log info "PostgreSQL probe: $(pg_isready -h "$PGHOST" -p "$PGPORT" -d "$PGDATABASE" -U "$PGUSER" 2>&1 || true)"
+	else
+		log info "PostgreSQL probe: pg_isready not installed; skipping."
 	fi
 }
 
@@ -101,15 +127,19 @@ log_listener_ports() {
 	fi
 }
 
-probe_stalwart_http() {
+probe_http_url() {
 	url="$1"
+	extra_args="$2"
 	response_file="/tmp/stalwart-probe.$$"
 	http_code="000"
 	curl_error=""
 
+	# shellcheck disable=SC2086
 	http_code="$(curl -sS -o "$response_file" -w '%{http_code}' \
+		--http1.1 \
 		--connect-timeout "${STALWART_PROBE_CONNECT_TIMEOUT:-3}" \
 		--max-time "${STALWART_PROBE_MAX_TIME:-8}" \
+		$extra_args \
 		"$url" 2>/tmp/stalwart-probe.err || true)"
 	if [ -f /tmp/stalwart-probe.err ]; then
 		curl_error="$(tr '\n' ' ' </tmp/stalwart-probe.err | sed 's/[[:space:]]\+/ /g')"
@@ -125,45 +155,62 @@ probe_stalwart_http() {
 	printf '%s|%s|%s\n' "$http_code" "$curl_error" "$body_snippet"
 }
 
-stalwart_http_status() {
-	probe="$(probe_stalwart_http "http://127.0.0.1:${STALWART_HTTP_PORT:-8080}/jmap/session")"
-	http_code="${probe%%|*}"
-	rest="${probe#*|}"
-	curl_error="${rest%%|*}"
-	body_snippet="${rest#*|}"
-
+http_code_ready() {
+	http_code="$1"
 	case "$http_code" in
-		2*|401|403)
-			printf 'ready|%s\n' "$http_code"
+		2*|401|403|404)
 			return 0
 			;;
 	esac
+	return 1
+}
 
-	printf 'not-ready|%s|%s|%s\n' "$http_code" "$curl_error" "$body_snippet"
+stalwart_http_status() {
+	port="${STALWART_HTTP_PORT:-8080}"
+	host_header="${STALWART_HTTP_HOST:-mail.solace.onl}"
+	host_args="-H Host:${host_header}"
+
+	for candidate in \
+		"http://127.0.0.1:${port}/jmap/session|${host_args}" \
+		"http://127.0.0.1:${port}/api/schema|${host_args}" \
+		"http://127.0.0.1:${port}/jmap/session|" \
+		"https://127.0.0.1:${port}/jmap/session|-k ${host_args}"; do
+		url="${candidate%%|*}"
+		extra_args="${candidate#*|}"
+		probe="$(probe_http_url "$url" "$extra_args")"
+		http_code="${probe%%|*}"
+		rest="${probe#*|}"
+		curl_error="${rest%%|*}"
+		body_snippet="${rest#*|}"
+
+		if http_code_ready "$http_code"; then
+			printf 'ready|%s|%s\n' "$http_code" "$url"
+			return 0
+		fi
+
+		last_probe="url=${url} http=${http_code} curl='${curl_error}' body='${body_snippet}'"
+	done
+
+	printf 'not-ready|%s\n' "${last_probe:-no probe attempts}"
 	return 1
 }
 
 stalwart_http_ready() {
 	if status_line="$(stalwart_http_status)"; then
 		http_code="${status_line#ready|}"
-		log info "Stalwart HTTP probe ready: GET /jmap/session -> HTTP ${http_code}."
+		http_code="${http_code%%|*}"
+		probe_url="${status_line#ready|}"
+		probe_url="${probe_url#*|}"
+		log info "Stalwart HTTP probe ready: ${probe_url} -> HTTP ${http_code}."
 		return 0
 	fi
 
-	http_code="${status_line#not-ready|}"
-	rest="${http_code#*|}"
-	http_code="${status_line#not-ready|}"
-	http_code="${http_code%%|*}"
-	rest="${status_line#not-ready|}"
-	rest="${rest#*|}"
-	curl_error="${rest%%|*}"
-	body_snippet="${rest#*|}"
-	log warn "Stalwart HTTP probe not ready: GET /jmap/session -> HTTP ${http_code}; curl='${curl_error:-ok}'; body='${body_snippet}'."
+	log warn "Stalwart HTTP probe not ready: ${status_line#not-ready|}."
 	return 1
 }
 
 stalwart_http_ready_quiet() {
-	stalwart_http_status >/dev/null 2>&1
+	stalwart_http_status >/dev/null
 }
 
 log_stalwart_diagnostics() {
@@ -176,8 +223,10 @@ log_stalwart_diagnostics() {
 		wait "$STALWART_PID" 2>/dev/null || true
 		log error "Stalwart exit status: $?."
 	fi
+	log_postgres_probe
 	log_listener_ports
-	log_file_tail "stalwart" "${STALWART_LOG_FILE:-/tmp/stalwart.log}"
+	log_file_tail "stalwart-stdout" "${STALWART_LOG_FILE:-/tmp/stalwart.log}"
+	log_stalwart_log_dir
 	log_file_tail "frpc" "${FRPC_LOG_FILE:-/tmp/frpc.log}"
 }
 
@@ -486,12 +535,15 @@ EOF
 
 start_stalwart() {
 	STALWART_LOG_FILE="${STALWART_LOG_FILE:-/tmp/stalwart.log}"
+	STALWART_LOG_DIR="${STALWART_LOG_DIR:-/var/log/stalwart}"
 	STALWART_HTTP_PORT="${STALWART_HTTP_PORT:-8080}"
+	STALWART_HTTP_HOST="${STALWART_HTTP_HOST:-mail.solace.onl}"
 
 	log info "Starting Stalwart."
 	log info "Database target: host=${PGHOST} port=${PGPORT} database=${PGDATABASE} tls=${USE_TLS} allowInvalidCerts=${ALLOW_INVALID}."
 	log info "Recovery mode active: ${RECOVERY_MODE_ACTIVE}."
-	log info "Stalwart logs: ${STALWART_LOG_FILE}."
+	log info "Stalwart stdout/stderr capture: ${STALWART_LOG_FILE}; file logs: ${STALWART_LOG_DIR}."
+	mkdir -p "$STALWART_LOG_DIR" 2>/dev/null || true
 	: > "$STALWART_LOG_FILE"
 	/usr/local/bin/stalwart --config /etc/stalwart/config.json >>"$STALWART_LOG_FILE" 2>&1 &
 	STALWART_PID=$!
@@ -567,8 +619,10 @@ wait_for_stalwart_admin() {
 		if [ "$elapsed" -ge "$next_log" ]; then
 			log info "Still waiting for Stalwart admin API (${elapsed}s/${ADMIN_READY_TIMEOUT}s elapsed)."
 			stalwart_http_ready || true
+			log_postgres_probe
 			log_listener_ports
-			log_file_tail "stalwart" "${STALWART_LOG_FILE:-/tmp/stalwart.log}" 15
+			log_file_tail "stalwart-stdout" "${STALWART_LOG_FILE:-/tmp/stalwart.log}" 15
+			log_stalwart_log_dir
 			next_log=$((elapsed + ADMIN_LOG_INTERVAL))
 		fi
 		elapsed=$((elapsed + 1))
@@ -612,42 +666,48 @@ verify_startup() {
 
 	sleep "$FRPC_START_DELAY_SECONDS"
 	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
-		log error "Stalwart exited during startup."
-		wait "$STALWART_PID" || true
+		log_stalwart_diagnostics "stalwart exited during startup grace period"
 		exit 1
+	fi
+
+	log info "Waiting for Stalwart HTTP before starting frpc (avoids proxy traffic during boot)."
+	if wait_for_stalwart_admin; then
+		log info "Stalwart HTTP is ready; starting frpc."
+	else
+		case "${ADMIN_READY_FATAL:-false}" in
+			1|true|TRUE|yes|YES)
+				log error "Refusing to start frpc before Stalwart is ready (ADMIN_READY_FATAL=true)."
+				exit 1
+				;;
+			*)
+				log warn "Stalwart HTTP not ready yet; starting frpc anyway and deferring slot activation."
+				STARTUP_DEGRADED=true
+				;;
+		esac
 	fi
 
 	start_frpc
 	wait_for_frpc_ready
 
 	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
-		log error "Stalwart exited within startup grace period."
-		wait "$STALWART_PID" || true
+		log_stalwart_diagnostics "stalwart exited after frpc startup"
 		exit 1
 	fi
 
 	if ! kill -0 "$FRPC_PID" 2>/dev/null; then
 		log error "frpc exited within startup grace period."
+		log_file_tail "frpc" "${FRPC_LOG_FILE:-/tmp/frpc.log}"
 		wait "$FRPC_PID" || true
 		exit 1
 	fi
 
-	if wait_for_stalwart_admin; then
+	if [ "${STARTUP_DEGRADED:-false}" != "true" ]; then
 		activate_frpc_slot
 		update_relay_route || log warn "Relay route update failed at startup; will retry in background."
 		SLOT_ACTIVATED=true
 		log info "Startup complete."
 	else
-		case "${ADMIN_READY_FATAL:-false}" in
-			1|true|TRUE|yes|YES)
-				log error "Refusing to continue before Stalwart is ready (ADMIN_READY_FATAL=true)."
-				exit 1
-				;;
-			*)
-				log warn "Continuing in degraded mode; slot activation and relay update deferred until Stalwart is ready."
-				STARTUP_DEGRADED=true
-				;;
-		esac
+		log warn "Startup complete in degraded mode; slot activation and relay update deferred."
 	fi
 }
 
