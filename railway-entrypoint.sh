@@ -467,7 +467,26 @@ relay_route_address() {
 		printf '%s\n' "$RELAY_ROUTE_ADDRESS"
 		return 0
 	fi
-	detect_container_ip
+
+	if CONTAINER_IP="$(detect_container_ip)"; then
+		case "$CONTAINER_IP" in
+			127.*|::1)
+				log warn "Detected loopback container IP (${CONTAINER_IP}); using hostname instead."
+				;;
+			*)
+				printf '%s\n' "$CONTAINER_IP"
+				return 0
+				;;
+		esac
+	fi
+
+	CONTAINER_HOST="$(hostname 2>/dev/null | tr -d '[:space:]')"
+	if [ -n "$CONTAINER_HOST" ] && [ "$CONTAINER_HOST" != "localhost" ]; then
+		printf '%s\n' "$CONTAINER_HOST"
+		return 0
+	fi
+
+	return 1
 }
 
 wait_for_stalwart_admin() {
@@ -499,23 +518,25 @@ update_relay_route() {
 	fi
 
 	if ! RELAY_ADDRESS="$(relay_route_address)"; then
-		log warn "Could not detect container IP for relay route update."
+		log warn "Could not determine relay route address from container IP or hostname."
 		return 1
 	fi
 
 	log info "Updating relay route ${RELAY_ROUTE_ID} to ${RELAY_ADDRESS}:${RELAY_ROUTE_PORT}."
-	if /usr/local/bin/stalwart-cli \
+	RELAY_UPDATE_OUTPUT="$(/usr/local/bin/stalwart-cli \
 		--url "http://127.0.0.1:8080" \
 		--api-key "$STALWART_ADMIN_TOKEN" \
 		update MtaRoute "$RELAY_ROUTE_ID" \
 		--field "address=${RELAY_ADDRESS}" \
-		--field "port=${RELAY_ROUTE_PORT}" >/dev/null 2>&1; then
+		--field "port=${RELAY_ROUTE_PORT}" 2>&1)" || RELAY_UPDATE_OUTPUT="${RELAY_UPDATE_OUTPUT:-stalwart-cli update failed}"
+
+	if [ "${RELAY_UPDATE_OUTPUT#*Updated}" != "$RELAY_UPDATE_OUTPUT" ]; then
 		log info "Relay route updated to ${RELAY_ADDRESS}:${RELAY_ROUTE_PORT}."
 		RELAY_ROUTE_UPDATED=true
 		return 0
 	fi
 
-	log warn "Failed to update relay route via stalwart-cli."
+	log warn "Failed to update relay route via stalwart-cli: ${RELAY_UPDATE_OUTPUT}"
 	return 1
 }
 

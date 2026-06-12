@@ -60,8 +60,10 @@ Internet (from VPS public IP / PTR)
 
 At container startup, `railway-entrypoint.sh` runs the STCP visitor in the
 same `frpc` process and uses `stalwart-cli` to point the relay route at the
-container private IP on port 2525. Stalwart refuses loopback relay targets,
-so `127.0.0.1` cannot be used.
+container private IP (or Docker hostname, which resolves to that IP) on port
+2525. Stalwart refuses loopback relay targets, so `127.0.0.1` cannot be used.
+Do not use invented hostnames such as `relay.internal` unless they resolve
+inside the container.
 
 Required Railway environment variables:
 
