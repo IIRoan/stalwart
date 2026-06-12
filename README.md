@@ -105,16 +105,28 @@ troubleshooting.
 ## Blue/green deploys
 
 ```mermaid
-stateDiagram-v2
-    [*] --> GreenActive: green serving traffic
-    GreenActive --> BlueTunnel: Railway deploys blue frpc
-    BlueTunnel --> BlueActive: slot-watcher promotes blue
-    BlueActive --> GreenTunnel: Railway deploys green frpc
-    GreenTunnel --> GreenActive: slot-watcher promotes green
+sequenceDiagram
+    participant R as Railway new container
+    participant H as Health :8090
+    participant V as VPS slot-manager
+    participant X as HAProxy
+
+    R->>R: Start Stalwart + frpc (inactive slot)
+    H-->>R: 503 until all checks pass
+    R->>R: smtp + https proxies online, relay up
+    H-->>R: 200 OK
+    Note over R: Railway marks deploy healthy
+    R->>V: POST /activate {slot}
+    V->>X: Gradual switch + drain old slot
+    Note over X: slot-watcher only fails over if active tunnel dies
 ```
 
-The Railway container does **not** call the VPS to switch slots. The VPS
-`stalwart-slot-watcher` polls frp port health and runs `stalwart-switch-slot.sh`.
+Railway returns **503** on `/healthz/ready` until Stalwart, frpc mail proxies,
+and the outbound relay are all running. Only then does Railway mark the deploy
+healthy and the container requests VPS promotion via `POST /slot-manager/activate`.
+
+The VPS `stalwart-slot-watcher` is **failover-only** — it promotes the other
+slot when the active tunnel goes down, not when both slots are up during overlap.
 
 ## Repository layout
 
@@ -137,6 +149,7 @@ The Railway container does **not** call the VPS to switch slots. The VPS
 | `FRPS_ADDR` | yes | VPS IP or hostname |
 | `FRPC_TOKEN` | yes | frp auth token (must match `vps/frps.toml`) |
 | `STALWART_ADMIN_TOKEN` | yes | Updates relay route at startup |
+| `SLOT_MANAGER_TOKEN` | yes | Promotes this container's slot after health gate opens |
 | `PORT` | yes | Set to `8090` — Railway healthcheck port |
 | `PGHOST`, `PGPASSWORD`, etc. | yes | PostgreSQL (Railway plugin) |
 | `FRPC_SLOT` | no | `blue`, `green`, or `auto` (default) |
@@ -146,11 +159,15 @@ The Railway container does **not** call the VPS to switch slots. The VPS
 
 ## Healthchecks
 
-Railway probes `GET /healthz/ready` on `PORT` (8090). A small Python HTTP
-server in the entrypoint answers this directly.
+Railway probes `GET /healthz/ready` on `PORT` (8090) **before** marking a deploy
+healthy. The endpoint returns **503** until all of the following are true:
+
+- Stalwart process alive and listening on `:25` and `:8080`
+- frpc process alive with `smtp-{slot}` and `https-{slot}` proxies online
+- Outbound relay STCP visitor listening on `:2525`
 
 Stalwart's real HTTP listener on `:8080` only works through HAProxy with PROXY
-protocol, so it cannot be used as the Railway healthcheck target.
+protocol, so it cannot be used as the Railway healthcheck target directly.
 
 ## VPS quick start
 

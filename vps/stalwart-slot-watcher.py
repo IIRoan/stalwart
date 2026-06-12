@@ -83,23 +83,27 @@ def switch_slot(slot: str) -> None:
 
 
 def maybe_promote() -> None:
+    """Fail over only when the active slot tunnel is down.
+
+    New deploys promote themselves via Railway POST /slot-manager/activate once
+    the container health gate opens. Avoid switching while both slots are up or
+    HAProxy will flip-flop during Railway overlap and return 503.
+    """
     active = read_active_slot()
     occupancy = {slot: slot_tunnel_up(slot) for slot in ("blue", "green")}
 
+    if occupancy[active]:
+        return
+
     for slot in ("blue", "green"):
-        if not occupancy[slot] or slot == active:
+        if slot == active or not occupancy[slot]:
             continue
-        if occupancy["blue"] and occupancy["green"]:
-            print(f"promoting {slot} during overlap (active={active})", flush=True)
-            switch_slot(slot)
-            return
-        if not occupancy[active]:
-            print(
-                f"promoting {slot} because active={active} tunnel is down",
-                flush=True,
-            )
-            switch_slot(slot)
-            return
+        print(
+            f"failover: promoting {slot} because active={active} tunnel is down",
+            flush=True,
+        )
+        switch_slot(slot)
+        return
 
 
 def main() -> None:

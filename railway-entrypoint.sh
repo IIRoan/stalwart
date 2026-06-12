@@ -11,6 +11,7 @@ RELAY_ROUTE_ID="${RELAY_ROUTE_ID:-ivnbzc1aaba9}"
 STALWART_HTTP_PORT="${STALWART_HTTP_PORT:-8080}"
 # Railway healthchecks probe PORT (set PORT=8090 in Railway variables).
 HEALTH_PORT="${PORT:-8090}"
+HEALTH_STATE_PATH="${HEALTH_STATE_PATH:-/tmp/railway-health.json}"
 
 log() {
 	printf '%s [%s] %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" "$2" >&2
@@ -129,9 +130,11 @@ EOF
 
 write_frpc_config() {
 	FRPC_CONFIG="${FRPC_CONFIG:-/tmp/frpc.toml}"
+	FRPC_PROXY_SUFFIX=""
 	case "$FRPC_SLOT" in
 		blue)
 			suffix=blue
+			FRPC_PROXY_SUFFIX=blue
 			smtp=10025
 			subs=10465
 			subm=10587
@@ -141,6 +144,7 @@ write_frpc_config() {
 			;;
 		green)
 			suffix=green
+			FRPC_PROXY_SUFFIX=green
 			smtp=11025
 			subs=11465
 			subm=11587
@@ -233,27 +237,126 @@ wait_for_stalwart_ports() {
 	die "Stalwart did not open mail/http ports within ${max_wait}s."
 }
 
+write_health_state() {
+	ready="${1:-false}"
+	python3 - "$HEALTH_STATE_PATH" "$ready" <<'PY'
+import json
+import os
+import sys
+
+path, ready = sys.argv[1], sys.argv[2] == "true"
+state = {
+    "ready": ready,
+    "recovery_mode": os.environ.get("RECOVERY_MODE") == "true",
+    "stalwart_pid": int(os.environ.get("STALWART_PID", "0") or 0),
+    "frpc_pid": int(os.environ.get("FRPC_PID", "0") or 0),
+    "frpc_relay_pid": int(os.environ.get("FRPC_RELAY_PID", "0") or 0),
+    "http_port": int(os.environ.get("STALWART_HTTP_PORT", "8080")),
+    "relay_port": int(os.environ.get("FRPC_RELAY_LOCAL_PORT", "2525")),
+    "frpc_log": os.environ.get("FRPC_LOG_FILE", "/tmp/frpc.log"),
+    "required_proxies": [
+        proxy for proxy in os.environ.get("FRPC_REQUIRED_PROXIES", "").split() if proxy
+    ],
+}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(state, handle)
+PY
+}
+
 start_health_server() {
 	log info "Starting Railway health listener on 0.0.0.0:${HEALTH_PORT}/healthz/ready."
-	HEALTH_PORT="$HEALTH_PORT" python3 -u <<'PY' &
+	write_health_state false
+	HEALTH_PORT="$HEALTH_PORT" HEALTH_STATE_PATH="$HEALTH_STATE_PATH" python3 -u <<'PY' &
+import json
 import os
 import socket
 import threading
 
 port = int(os.environ["HEALTH_PORT"])
-payload = (
+state_path = os.environ["HEALTH_STATE_PATH"]
+
+OK = (
     b'HTTP/1.1 200 OK\r\n'
     b'Content-Type: application/json\r\n'
     b'Connection: close\r\n'
     b'Content-Length: 62\r\n\r\n'
     b'{"type":"about:blank","title":"OK","status":200,"detail":"OK"}'
 )
+UNAVAILABLE = (
+    b'HTTP/1.1 503 Service Unavailable\r\n'
+    b'Content-Type: application/json\r\n'
+    b'Connection: close\r\n'
+    b'Content-Length: 78\r\n\r\n'
+    b'{"type":"about:blank","title":"Unavailable","status":503,"detail":"Not ready"}'
+)
+
+
+def load_state():
+    try:
+        with open(state_path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except OSError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def pid_alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except OSError:
+        return False
+    return True
+
+
+def port_open(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", int(port))) == 0
+
+
+def frpc_proxies_ready(state):
+    log_path = state.get("frpc_log")
+    required = state.get("required_proxies") or []
+    if not log_path or not required:
+        return False
+    try:
+        with open(log_path, encoding="utf-8") as handle:
+            content = handle.read()
+    except OSError:
+        return False
+    for proxy in required:
+        found = False
+        for line in content.splitlines():
+            if proxy in line and "start proxy success" in line:
+                found = True
+                break
+        if not found:
+            return False
+    return True
+
+
+def ready():
+    state = load_state()
+    if not state.get("ready"):
+        return False
+    for key in ("stalwart_pid", "frpc_pid", "frpc_relay_pid"):
+        if not pid_alive(state.get(key)):
+            return False
+    for port in (25, state.get("http_port", 8080), state.get("relay_port", 2525)):
+        if not port_open(port):
+            return False
+    if not state.get("recovery_mode") and not frpc_proxies_ready(state):
+        return False
+    return True
 
 
 def handle(conn):
     try:
         conn.recv(4096)
-        conn.sendall(payload)
+        conn.sendall(OK if ready() else UNAVAILABLE)
     finally:
         conn.close()
 
@@ -271,7 +374,9 @@ PY
 	i=0
 	while [ "$i" -lt 20 ]; do
 		if curl -fsS --max-time 1 "http://127.0.0.1:${HEALTH_PORT}/healthz/ready" >/dev/null 2>&1; then
-			log info "Health listener ready on :${HEALTH_PORT}."
+			log warn "Health listener responded before readiness gate; expected 503."
+		else
+			log info "Health listener ready on :${HEALTH_PORT} (returns 503 until stack is up)."
 			return 0
 		fi
 		i=$((i + 1))
@@ -361,6 +466,62 @@ update_relay_route() {
 	log warn "Could not update relay route to ${relay_addr}:${FRPC_RELAY_LOCAL_PORT}."
 }
 
+wait_for_frpc_proxies() {
+	[ "$RECOVERY_MODE" = "true" ] && return 0
+
+	FRPC_REQUIRED_PROXIES="smtp-${FRPC_PROXY_SUFFIX} https-${FRPC_PROXY_SUFFIX}"
+	export FRPC_REQUIRED_PROXIES
+
+	i=0
+	max_wait="${FRPC_READY_TIMEOUT_SECONDS:-120}"
+	while [ "$i" -lt "$max_wait" ]; do
+		ready=true
+		for proxy in $FRPC_REQUIRED_PROXIES; do
+			if ! grep -q "$proxy" "$FRPC_LOG_FILE" 2>/dev/null \
+				|| ! grep "$proxy" "$FRPC_LOG_FILE" 2>/dev/null | grep -q "start proxy success"; then
+				ready=false
+				break
+			fi
+		done
+		if [ "$ready" = "true" ]; then
+			log info "frpc proxies online: ${FRPC_REQUIRED_PROXIES}."
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+
+	tail -n 20 "$FRPC_LOG_FILE" >&2 || true
+	die "frpc did not register required proxies within ${max_wait}s."
+}
+
+mark_health_ready() {
+	export STALWART_PID FRPC_PID FRPC_RELAY_PID STALWART_HTTP_PORT FRPC_RELAY_LOCAL_PORT
+	export FRPC_LOG_FILE FRPC_REQUIRED_PROXIES
+	export RECOVERY_MODE="${RECOVERY_MODE}"
+	write_health_state true
+	log info "Railway health gate open (Stalwart + frpc + relay ready)."
+}
+
+activate_slot() {
+	[ -n "${SLOT_MANAGER_TOKEN:-}" ] || {
+		log warn "SLOT_MANAGER_TOKEN unset; VPS slot promotion relies on watcher failover."
+		return 0
+	}
+
+	log info "Requesting VPS promotion for slot=${FRPC_SLOT}."
+	if curl -fsS --connect-timeout 5 --max-time 120 \
+		-X POST "${SLOT_MANAGER_URL:-https://mail.solace.onl/slot-manager}/activate" \
+		-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
+		-H "Content-Type: application/json" \
+		-d "{\"slot\":\"${FRPC_SLOT}\"}" >/dev/null 2>&1; then
+		log info "VPS promoted slot=${FRPC_SLOT}."
+		return 0
+	fi
+
+	log warn "VPS slot promotion failed; watcher may fail over later."
+}
+
 start_frpc() {
 	write_frpc_config
 	: > "$FRPC_LOG_FILE"
@@ -376,6 +537,7 @@ start_frpc() {
 	FRPC_RELAY_PID=$!
 	log info "frpc relay visitor pid=${FRPC_RELAY_PID}."
 	wait_for_relay_port
+	wait_for_frpc_proxies
 	update_relay_route
 }
 
@@ -386,15 +548,28 @@ start_frpc() {
 
 write_store_config
 resolve_slot
-start_stalwart
 start_health_server
+start_stalwart
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
 start_frpc
+mark_health_ready
+activate_slot
 
-log info "Running (Railway health :${HEALTH_PORT}/healthz/ready; Stalwart :${STALWART_HTTP_PORT}; VPS promotes slot)."
+i=0
+while [ "$i" -lt 30 ]; do
+	if curl -fsS --max-time 1 "http://127.0.0.1:${HEALTH_PORT}/healthz/ready" >/dev/null 2>&1; then
+		break
+	fi
+	i=$((i + 1))
+	sleep 1
+done
+[ "$i" -lt 30 ] || die "Health gate did not return 200 after readiness."
+
+log info "Running (Railway health :${HEALTH_PORT}/healthz/ready; slot=${FRPC_SLOT}; Stalwart :${STALWART_HTTP_PORT})."
 
 while :; do
 	if ! kill -0 "$STALWART_PID" 2>/dev/null; then
+		write_health_state false
 		wait "$STALWART_PID" 2>/dev/null || true
 		die "Stalwart exited."
 	fi
@@ -402,10 +577,12 @@ while :; do
 		die "Health listener exited."
 	fi
 	if ! kill -0 "$FRPC_PID" 2>/dev/null; then
+		write_health_state false
 		tail -n 20 "$FRPC_LOG_FILE" >&2 || true
 		die "frpc exited."
 	fi
 	if ! kill -0 "$FRPC_RELAY_PID" 2>/dev/null; then
+		write_health_state false
 		tail -n 20 "$FRPC_RELAY_LOG_FILE" >&2 || true
 		die "frpc relay visitor exited."
 	fi
