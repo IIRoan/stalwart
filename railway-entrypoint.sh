@@ -230,12 +230,21 @@ wait_for_stalwart_ports() {
 }
 
 start_health_server() {
-	log info "Starting Railway health listener on :${HEALTH_PORT}/healthz/ready."
-	while true; do
-		socat "TCP-LISTEN:${HEALTH_PORT},bind=[::],reuseaddr,fork" \
-			"OPEN:/etc/stalwart/railway-health.http" 2>/dev/null || sleep 1
-	done &
+	log info "Starting Railway health listener on 0.0.0.0:${HEALTH_PORT}/healthz/ready."
+	socat "TCP-LISTEN:${HEALTH_PORT},bind=0.0.0.0,reuseaddr,fork" \
+		"OPEN:/etc/stalwart/railway-health.http" &
 	HEALTH_PID=$!
+
+	i=0
+	while [ "$i" -lt 20 ]; do
+		if curl -fsS --max-time 1 "http://127.0.0.1:${HEALTH_PORT}/healthz/ready" >/dev/null 2>&1; then
+			log info "Health listener ready on :${HEALTH_PORT}."
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 0.5
+	done
+	die "Health listener failed to respond on :${HEALTH_PORT}."
 }
 
 start_stalwart() {

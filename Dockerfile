@@ -2,7 +2,7 @@ FROM stalwartlabs/stalwart:v0.16
 
 ARG FRPC_VERSION=0.69.1
 ARG STALWART_CLI_VERSION=1.0.8
-ARG BUILD_TIMESTAMP=2026-06-12-15
+ARG BUILD_TIMESTAMP=2026-06-12-16
 
 USER root
 
@@ -29,6 +29,6 @@ RUN chmod 755 /usr/local/bin/railway-entrypoint.sh \
 
 USER stalwart
 
-EXPOSE 25 465 587 993 443 8080
+EXPOSE 25 465 587 993 443 8080 8090
 
 ENTRYPOINT ["/usr/local/bin/railway-entrypoint.sh"]
