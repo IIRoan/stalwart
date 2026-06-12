@@ -1,6 +1,7 @@
 [Unit]
 Description=FRP client for outbound relay tunnel (STCP)
-After=frps.service
+After=network-online.target frps.service postfix.service
+Wants=network-online.target
 Requires=frps.service
 
 [Service]

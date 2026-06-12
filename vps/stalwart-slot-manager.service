@@ -1,6 +1,6 @@
 [Unit]
 Description=Stalwart blue-green slot manager
-After=network-online.target
+After=network-online.target haproxy.service
 Wants=network-online.target
 
 [Service]
