@@ -500,9 +500,10 @@ wait_for_stalwart_management() {
 	i=0
 	max_seconds="${STALWART_MANAGEMENT_TIMEOUT_SECONDS:-120}"
 	while [ "$((i * 2))" -lt "$max_seconds" ]; do
-		if stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-			get MtaRoute "$RELAY_ROUTE_ID" >/dev/null 2>&1; then
-			log info "Stalwart management API ready on ${stalwart_url}."
+		if curl -fsSL --max-time 2 \
+			-H "Authorization: Bearer ${STALWART_ADMIN_TOKEN}" \
+			"${stalwart_url}/jmap/session" >/dev/null 2>&1; then
+			log info "Stalwart HTTP API ready on ${stalwart_url}."
 			return 0
 		fi
 		i=$((i + 1))
