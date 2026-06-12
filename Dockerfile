@@ -2,7 +2,7 @@ FROM stalwartlabs/stalwart:v0.16
 
 ARG FRPC_VERSION=0.69.1
 ARG STALWART_CLI_VERSION=1.0.8
-ARG BUILD_TIMESTAMP=2026-06-12-6
+ARG BUILD_TIMESTAMP=2026-06-12-7
 
 USER root
 
@@ -18,8 +18,7 @@ RUN apt-get update \
     && mv /tmp/stalwart-cli-x86_64-unknown-linux-gnu/stalwart-cli /usr/local/bin/stalwart-cli \
     && rm -rf /tmp/stalwart-cli-x86_64-unknown-linux-gnu \
     && chmod 755 /usr/local/bin/stalwart-cli \
-    && rm -rf /var/lib/apt/lists/* \
-    && chmod 666 /etc/hosts
+    && rm -rf /var/lib/apt/lists/*
 
 COPY railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
 RUN chmod 755 /usr/local/bin/railway-entrypoint.sh \

@@ -462,38 +462,12 @@ detect_container_ip() {
 	printf '%s\n' "$CONTAINER_IP"
 }
 
-configure_relay_hosts() {
-	RELAY_HOST="${RELAY_ROUTE_HOSTNAME:-relay.internal}"
-
-	if [ -n "${RELAY_ROUTE_ADDRESS:-}" ]; then
-		CONTAINER_IP="$RELAY_ROUTE_ADDRESS"
-	elif ! CONTAINER_IP="$(detect_container_ip)"; then
-		log warn "Could not detect container IP for ${RELAY_HOST} hosts entry."
-		return 1
-	fi
-
-	if grep -q "[[:space:]]$RELAY_HOST$" /etc/hosts 2>/dev/null; then
-		grep -v "[[:space:]]$RELAY_HOST$" /etc/hosts > /tmp/hosts.relay
-	else
-		cp /etc/hosts /tmp/hosts.relay
-	fi
-	printf '%s %s\n' "$CONTAINER_IP" "$RELAY_HOST" >> /tmp/hosts.relay
-
-	if ! cp /tmp/hosts.relay /etc/hosts 2>/dev/null; then
-		log warn "Could not update /etc/hosts with ${RELAY_HOST} -> ${CONTAINER_IP}."
-		return 1
-	fi
-
-	log info "Mapped ${RELAY_HOST} to ${CONTAINER_IP} in /etc/hosts."
-	return 0
-}
-
 relay_route_address() {
 	if [ -n "${RELAY_ROUTE_ADDRESS:-}" ]; then
 		printf '%s\n' "$RELAY_ROUTE_ADDRESS"
 		return 0
 	fi
-	printf '%s\n' "${RELAY_ROUTE_HOSTNAME:-relay.internal}"
+	detect_container_ip
 }
 
 wait_for_stalwart_admin() {
@@ -524,7 +498,10 @@ update_relay_route() {
 		return 1
 	fi
 
-	RELAY_ADDRESS="$(relay_route_address)"
+	if ! RELAY_ADDRESS="$(relay_route_address)"; then
+		log warn "Could not detect container IP for relay route update."
+		return 1
+	fi
 
 	log info "Updating relay route ${RELAY_ROUTE_ID} to ${RELAY_ADDRESS}:${RELAY_ROUTE_PORT}."
 	if /usr/local/bin/stalwart-cli \
@@ -573,7 +550,6 @@ verify_startup() {
 	fi
 
 	activate_frpc_slot
-	configure_relay_hosts || log warn "Relay hosts mapping failed; relay route may use stale address."
 	update_relay_route || log warn "Relay route update failed at startup; will retry in background."
 
 	log info "Startup complete."
