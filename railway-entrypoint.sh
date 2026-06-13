@@ -2,6 +2,10 @@
 # Railway-native entrypoint: Stalwart + health listener + frpc.
 set -eu
 
+# The stalwart image user has no home dir; stalwart-cli needs a writable HOME.
+export HOME="${HOME:-/tmp}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp}"
+
 FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
 FRPC_RELAY_LOG_FILE="${FRPC_RELAY_LOG_FILE:-/tmp/frpc-relay.log}"
 FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
