@@ -596,8 +596,7 @@ activate_slot() {
 		return 0
 	fi
 
-	log warn "VPS slot promotion failed; slot watcher may catch up."
-	return 1
+	die "VPS slot promotion failed; refusing to open Railway health gate."
 }
 
 start_frpc() {
@@ -631,8 +630,8 @@ start_health_server
 start_stalwart
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
 start_frpc
+activate_slot
 mark_health_ready
-activate_slot || log warn "VPS slot promotion incomplete; continuing with overlap window."
 
 i=0
 while [ "$i" -lt 30 ]; do
