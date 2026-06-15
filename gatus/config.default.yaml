@@ -58,6 +58,23 @@ endpoints:
     conditions:
       - "[STATUS] == 200"
 
+  - name: slot-blue-green
+    group: Mail
+    url: https://mail.solace.onl/slot-manager/status
+    interval: 60s
+    client:
+      headers:
+        Authorization: "Bearer ${SLOT_MANAGER_TOKEN}"
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: smtp-inbound
+    group: Mail
+    url: tcp://mail.solace.onl:25
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+
   - name: imaps
     group: Mail
     url: tcp://mail.solace.onl:993
@@ -67,15 +84,10 @@ endpoints:
 
   - name: submission-starttls
     group: Mail
-    url: starttls://mail.solace.onl:465
+    url: starttls://mail.solace.onl:587
     interval: 5m
     client:
       timeout: 10s
     conditions:
       - "[CONNECTED] == true"
       - "[CERTIFICATE_EXPIRATION] > 336h"
-
-# Not in defaults (Railway / env-specific):
-# - slot-blue-green: appended when SLOT_MANAGER_TOKEN is set (requires auth)
-# - smtp-inbound :25: Railway blocks outbound SMTP; use VPS SSH monitor instead
-# - submission :587: VPS HAProxy binds :465, not :587

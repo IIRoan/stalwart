@@ -3,9 +3,5 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-healthcheckPath = "/health"
-healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
-
-# Railway UI: set Healthcheck Path to /health (not /healthz/ready from Stalwart).
