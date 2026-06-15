@@ -107,8 +107,8 @@ set_warm_weights() {
 	target="$2"
 
 	case "$incumbent:$target" in
-		green:blue) set_slot_weights 100 "$WARM_WEIGHT" ;;
-		blue:green) set_slot_weights "$WARM_WEIGHT" 100 ;;
+		green:blue) set_slot_weights "$WARM_WEIGHT" 100 ;;
+		blue:green) set_slot_weights 100 "$WARM_WEIGHT" ;;
 		*)
 			echo "Unknown warm weight pair ${incumbent}->${target}." >&2
 			return 1
