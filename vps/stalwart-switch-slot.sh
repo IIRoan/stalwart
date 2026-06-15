@@ -129,6 +129,34 @@ wait_for_stable_slot_up() {
 	return 1
 }
 
+wait_for_slot_jmap() {
+	slot="$1"
+	host="${HTTP_HEALTHCHECK_HOST:-mail.solace.onl}"
+
+	case "$slot" in
+		blue) port=18080 ;;
+		green) port=19080 ;;
+		*)
+			echo "Unknown slot $slot for direct JMAP probe." >&2
+			return 1
+			;;
+	esac
+
+	i=0
+	while [ "$i" -lt 30 ]; do
+		if curl -fsS --max-time 3 --haproxy-protocol \
+			-H "Host: ${host}" \
+			"http://127.0.0.1:${port}/jmap/session" >/dev/null 2>&1; then
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+
+	echo "Direct JMAP probe failed for slot $slot on :${port}." >&2
+	return 1
+}
+
 wait_for_edge_jmap() {
 	host="${HTTP_HEALTHCHECK_HOST:-mail.solace.onl}"
 	i=0
@@ -204,7 +232,7 @@ finalize_active_slot() {
 			rollback_finalize "$target_slot" "$other_slot"
 			return 1
 		fi
-		if ! wait_for_edge_jmap; then
+		if ! wait_for_slot_jmap "$target_slot"; then
 			rollback_finalize "$target_slot" "$other_slot"
 			return 1
 		fi
@@ -215,13 +243,13 @@ finalize_active_slot() {
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi
-	if ! wait_for_edge_jmap; then
+	if ! wait_for_slot_jmap "$target_slot"; then
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi
 
 	set_slot_state "$other_slot" drain
-	if ! wait_for_edge_jmap; then
+	if ! wait_for_slot_jmap "$target_slot"; then
 		set_slot_state "$other_slot" ready
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
