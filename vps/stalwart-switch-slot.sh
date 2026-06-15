@@ -167,6 +167,7 @@ rollback_finalize() {
 finalize_active_slot() {
 	target_slot="$1"
 	other_slot=""
+	steps=4
 
 	case "$target_slot" in
 		blue) other_slot=green ;;
@@ -176,24 +177,29 @@ finalize_active_slot() {
 	set_slot_state "$target_slot" ready
 	set_slot_state "$other_slot" ready
 
-	# Introduce the target into the live pool before dropping the incumbent.
-	set_slot_weights 100 100
-	wait_for_stable_slot_up "$target_slot" 3
+	step=0
+	while [ "$step" -le "$steps" ]; do
+		target_weight=$((step * 100 / steps))
+		other_weight=$((100 - target_weight))
 
-	case "$target_slot" in
-		blue) set_slot_weights 100 0 ;;
-		green) set_slot_weights 0 100 ;;
-	esac
+		case "$target_slot" in
+			blue) set_slot_weights "$target_weight" "$other_weight" ;;
+			green) set_slot_weights "$other_weight" "$target_weight" ;;
+		esac
 
-	if ! wait_for_stable_slot_up "$target_slot" 3; then
-		rollback_finalize "$target_slot" "$other_slot"
-		return 1
-	fi
+		if [ "$step" -gt 0 ]; then
+			if ! wait_for_stable_slot_up "$target_slot" 2; then
+				rollback_finalize "$target_slot" "$other_slot"
+				return 1
+			fi
+			if ! wait_for_edge_jmap; then
+				rollback_finalize "$target_slot" "$other_slot"
+				return 1
+			fi
+		fi
 
-	if ! wait_for_edge_jmap; then
-		rollback_finalize "$target_slot" "$other_slot"
-		return 1
-	fi
+		step=$((step + 1))
+	done
 
 	set_slot_state "$other_slot" maint
 	printf '%s\n' "$target_slot" | tee "$ACTIVE_SLOT_FILE" >/dev/null
