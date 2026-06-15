@@ -103,25 +103,99 @@ set_slot_weights() {
 	done
 }
 
-finalize_active_slot() {
-	target_slot="$1"
+wait_for_stable_slot_up() {
+	slot="$1"
+	required="${2:-3}"
+	streak=0
+	i=0
+	while [ "$i" -lt "$HTTP_READY_TIMEOUT" ]; do
+		status="$(get_server_status bk_https "$slot")"
+		case "$status" in
+			UP|UP\ *)
+				streak=$((streak + 1))
+				if [ "$streak" -ge "$required" ]; then
+					return 0
+				fi
+				;;
+			*)
+				streak=0
+				;;
+		esac
+		i=$((i + 1))
+		sleep 1
+	done
 
-	# Raise target weight before demoting the old slot. Reversing this order
-	# leaves a window where the old backend is in maint with weight 0 on the
-	# new slot, which makes HAProxy return 503 (<NOSRV>).
+	echo "Slot $slot did not stay UP on bk_https for ${required}s." >&2
+	return 1
+}
+
+wait_for_edge_jmap() {
+	host="${HTTP_HEALTHCHECK_HOST:-mail.solace.onl}"
+	i=0
+	while [ "$i" -lt 30 ]; do
+		if curl -fsS --max-time 3 "https://${host}/jmap/session" >/dev/null 2>&1; then
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+
+	echo "Public JMAP probe failed after cutover." >&2
+	return 1
+}
+
+rollback_finalize() {
+	target_slot="$1"
+	other_slot="$2"
+
 	case "$target_slot" in
 		blue)
-			set_slot_weights 100 0
-			set_slot_state blue ready
-			set_slot_state green maint
-			;;
-		green)
 			set_slot_weights 0 100
 			set_slot_state green ready
-			set_slot_state blue maint
+			set_slot_state blue ready
+			printf '%s\n' green >"$ACTIVE_SLOT_FILE"
+			;;
+		green)
+			set_slot_weights 100 0
+			set_slot_state blue ready
+			set_slot_state green ready
+			printf '%s\n' blue >"$ACTIVE_SLOT_FILE"
 			;;
 	esac
+}
 
+finalize_active_slot() {
+	target_slot="$1"
+	other_slot=""
+
+	case "$target_slot" in
+		blue) other_slot=green ;;
+		green) other_slot=blue ;;
+	esac
+
+	set_slot_state "$target_slot" ready
+	set_slot_state "$other_slot" ready
+
+	# Introduce the target into the live pool before dropping the incumbent.
+	set_slot_weights 100 100
+	wait_for_stable_slot_up "$target_slot" 3
+
+	case "$target_slot" in
+		blue) set_slot_weights 100 0 ;;
+		green) set_slot_weights 0 100 ;;
+	esac
+
+	if ! wait_for_stable_slot_up "$target_slot" 3; then
+		rollback_finalize "$target_slot" "$other_slot"
+		return 1
+	fi
+
+	if ! wait_for_edge_jmap; then
+		rollback_finalize "$target_slot" "$other_slot"
+		return 1
+	fi
+
+	set_slot_state "$other_slot" maint
 	printf '%s\n' "$target_slot" | tee "$ACTIVE_SLOT_FILE" >/dev/null
 }
 
