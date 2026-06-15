@@ -192,29 +192,6 @@ rollback_finalize() {
 	esac
 }
 
-set_slot_role() {
-	target_slot="$1"
-	other_slot="$2"
-
-	for backend in $ALL_BACKENDS; do
-		run_haproxy_command "set server ${backend}/railway_${target_slot} state ready"
-		run_haproxy_command "set server ${backend}/railway_${other_slot} state ready"
-		run_haproxy_command "set weight ${backend}/railway_blue 100%"
-		run_haproxy_command "set weight ${backend}/railway_green 100%"
-	done
-}
-
-apply_weight_split() {
-	target_slot="$1"
-	target_weight="$2"
-	other_weight="$3"
-
-	case "$target_slot" in
-		blue) set_slot_weights "$target_weight" "$other_weight" ;;
-		green) set_slot_weights "$other_weight" "$target_weight" ;;
-	esac
-}
-
 finalize_active_slot() {
 	target_slot="$1"
 	other_slot=""
@@ -224,26 +201,27 @@ finalize_active_slot() {
 		green) other_slot=blue ;;
 	esac
 
-	set_slot_role "$target_slot" "$other_slot"
+	set_slot_state "$target_slot" ready
 
-	for target_weight in 25 50 75; do
-		apply_weight_split "$target_slot" "$target_weight" 100
-		if ! wait_for_stable_slot_up "$target_slot" 3; then
-			rollback_finalize "$target_slot" "$other_slot"
-			return 1
-		fi
-		if ! wait_for_slot_jmap "$target_slot"; then
-			rollback_finalize "$target_slot" "$other_slot"
-			return 1
-		fi
-	done
+	if ! wait_for_slot_jmap "$target_slot"; then
+		rollback_finalize "$target_slot" "$other_slot"
+		return 1
+	fi
+	if ! wait_for_stable_slot_up "$target_slot" 10; then
+		rollback_finalize "$target_slot" "$other_slot"
+		return 1
+	fi
 
-	apply_weight_split "$target_slot" 100 100
+	case "$target_slot" in
+		blue) set_slot_weights 100 0 ;;
+		green) set_slot_weights 0 100 ;;
+	esac
+
 	if ! wait_for_stable_slot_up "$target_slot" 5; then
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi
-	if ! wait_for_slot_jmap "$target_slot"; then
+	if ! wait_for_edge_jmap; then
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi

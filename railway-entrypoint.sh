@@ -629,8 +629,9 @@ resolve_slot
 start_health_server
 start_stalwart
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
-start_frpc
-activate_slot
+	start_frpc
+	sleep "${SLOT_PROMOTION_DELAY_SECONDS:-15}"
+	activate_slot
 mark_health_ready
 
 i=0
