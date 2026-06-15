@@ -15,7 +15,7 @@ ui:
   link: "https://solace.onl"
   default-sort-by: group
 
-# Optional alerting — set SLACK_WEBHOOK_URL (or others) in Railway and uncomment:
+# Optional alerting — set SLACK_WEBHOOK_URL in Railway and uncomment:
 # alerting:
 #   slack:
 #     webhook-url: ${SLACK_WEBHOOK_URL}
@@ -51,13 +51,6 @@ endpoints:
       - "[RESPONSE_TIME] < 5000"
       - "[CERTIFICATE_EXPIRATION] > 336h"
 
-  - name: slot-manager-active
-    group: Mail
-    url: https://mail.solace.onl/slot-manager/active
-    interval: 60s
-    conditions:
-      - "[STATUS] == 200"
-
   - name: slot-blue-green
     group: Mail
     url: https://mail.solace.onl/slot-manager/status
@@ -68,13 +61,16 @@ endpoints:
     conditions:
       - "[STATUS] == 200"
 
-  - name: imaps
+  - name: stalwart-metrics
     group: Mail
-    url: tcp://mail.solace.onl:993
+    url: https://mail.solace.onl/metrics/prometheus
     interval: 60s
+    client:
+      timeout: 15s
+      headers:
+        Authorization: "Basic ${PROMETHEUS_BASIC_AUTH}"
     conditions:
-      - "[CONNECTED] == true"
-
-# :25 and :465 cannot be probed from Railway (outbound SMTP ports are blocked).
-# For send/receive telemetry, enable Stalwart Prometheus and set STALWART_METRICS_* on
-# Gatus (see gatus/README.md and scripts/enable-prometheus-metrics.sh).
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*queue_count*)"
+      - "[BODY] == pat(*smtp_active_connections*)"
+      - "[BODY] == pat(*delivery_active_connections*)"

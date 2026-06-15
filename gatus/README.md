@@ -1,110 +1,30 @@
 # Gatus status page (Solace)
 
-[Gatus](https://github.com/TwiN/gatus) monitors Solace (`solace.onl`, `api.solace.onl`) and the
-mail stack (`mail.solace.onl`) from Railway. Deploy as a **separate Railway service** in this
-repo — do not reuse the Stalwart mail service.
+[Gatus](https://github.com/TwiN/gatus) monitors Solace and mail from Railway. Deploy as a
+**separate Railway service** (root directory `gatus`, volume at `/data`).
 
-## Railway setup
-
-1. In the Solace Railway project, **New Service → GitHub Repo** → `IIRoan/stalwart`.
-2. Set **Root Directory** to `gatus`.
-3. Attach a **volume** mounted at `/data` (SQLite history + config persistence).
-4. Set **custom domain** `status.solace.onl`.
-5. Configure variables (see [.env.example](.env.example)):
+## Railway variables
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `PORT` | yes | Railway sets this; Gatus listens on `${PORT}` |
-| `SLOT_MANAGER_TOKEN` | yes | Bearer token for `GET /slot-manager/status` |
-| `GATUS_ADMIN_USERNAME` | no | HTTP basic auth on the status page |
-| `GATUS_ADMIN_PASSWORD` | no | Pair with username above |
-| `SLACK_WEBHOOK_URL` | no | Alerts (uncomment `alerting:` in config too) |
-| `VPS_MONITOR_SSH_*` | no | VPS internal checks via SSH (see below) |
+| `PORT` | auto | Set by Railway |
+| `prometheus_user` | yes | Stalwart Prometheus basic auth (WebUI) |
+| `prometheus_password` | yes | Stalwart Prometheus basic auth |
+| `SLOT_MANAGER_TOKEN` | yes | Bearer token for `/slot-manager/status` |
 
-`GATUS_CONFIG_YAML` overrides the baked-in config on every boot if you need full control.
-
-## Default monitors
+## Monitors
 
 | Group | Endpoint | What it proves |
 |-------|----------|----------------|
 | Application | `solace.onl` | Web frontend |
 | Application | `api.solace.onl/api/health` | Backend API |
-| Mail | `mail.solace.onl/jmap/session` | HAProxy → frp → Stalwart → DB |
-| Mail | `mail.solace.onl/slot-manager/active` | VPS slot API |
-| Mail | `mail.solace.onl/slot-manager/status` | Blue/green tunnel occupancy |
-| Mail | TCP `:25`, `:993`, STARTTLS `:587` | Public mail ports |
+| Mail | `mail.solace.onl/jmap/session` | End-to-end mail path |
+| Mail | `mail.solace.onl/slot-manager/status` | Blue/green tunnels |
+| Mail | `mail.solace.onl/metrics/prometheus` | Stalwart send/receive metrics |
 
-The JMAP check is the most important mail probe — it exercises the same path remote clients use.
-
-## Stalwart send/receive metrics (optional)
-
-Railway cannot probe SMTP ports `:25` / `:465` outbound. Instead, use Stalwart's
-[Prometheus exporter](https://stalw.art/docs/telemetry/metrics/prometheus/) on
-`https://mail.solace.onl/metrics/prometheus` (same HTTPS path as JMAP).
-
-**Step 1 — Enable on Stalwart (once):**
-
-```bash
-export STALWART_ADMIN_TOKEN=...
-export STALWART_METRICS_USERNAME=prometheus
-export STALWART_METRICS_PASSWORD='choose-a-strong-password'
-./scripts/enable-prometheus-metrics.sh
-```
-
-**Step 2 — On the Gatus Railway service, set:**
-
-```
-STALWART_METRICS_USERNAME=prometheus
-STALWART_METRICS_PASSWORD=<same password>
-```
-
-Redeploy Gatus. The entrypoint adds a `stalwart-metrics` monitor that checks:
-
-| Metric | Meaning |
-|--------|---------|
-| `queue_count` | Outbound delivery queue depth |
-| `smtp_active_connections` | Inbound SMTP activity |
-| `delivery_active_connections` | Outbound send activity |
-
-This confirms the telemetry pipeline is live. For graphs and alerting on rates/errors,
-scrape the same endpoint with Prometheus + [Grafana dashboard #23498](https://grafana.com/grafana/dashboards/23498-service-stalwart/).
-
-## VPS internal monitoring (optional)
-
-Public probes cannot see localhost services (frps dashboard, Postfix queue, systemd). For that:
-
-1. Install the health script on the VPS:
-
-   ```bash
-   sudo install -m 0755 vps/gatus-monitor.sh /usr/local/bin/gatus-monitor.sh
-   ```
-
-2. Create a `gatus-monitor` user with **no shell**, key-only auth, and `authorized_keys`:
-
-   ```
-   command="/usr/local/bin/gatus-monitor.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...
-   ```
-
-3. On the Gatus Railway service, set:
-
-   ```
-   VPS_MONITOR_SSH_USERNAME=gatus-monitor
-   VPS_MONITOR_SSH_PRIVATE_KEY_B64=<base64-encoded private key>
-   ```
-
-The entrypoint decodes the key and appends a `vps-health` SSH endpoint that expects
-`[BODY].status == healthy`. See [config.vps-ssh.endpoints.yaml](config.vps-ssh.endpoints.yaml).
-
-## Image layout
-
-Adapted from [gatus-railway](https://github.com/sahilrupani/gatus-railway) patterns:
-
-- Multi-stage build: `twinproduction/gatus:stable` binary on Alpine 3.20
-- Entrypoint writes config to `/data/config.yaml` (volume-backed)
-- Optional basic-auth injection at boot (bcrypt via `htpasswd`)
-- Optional VPS SSH endpoint injection when credentials are present
-
-Unlike the template repo, the default config targets Solace infrastructure instead of demo URLs.
+The metrics monitor checks `queue_count`, `smtp_active_connections`, and
+`delivery_active_connections`. Enable Prometheus in the Stalwart WebUI
+(Settings → Telemetry → Metrics → Prometheus).
 
 ## Local test
 
@@ -113,14 +33,13 @@ cd gatus
 docker build -t solace-gatus .
 docker run --rm -p 8080:8080 \
   -e PORT=8080 \
+  -e prometheus_user=prometheus \
+  -e prometheus_password=secret \
   -e SLOT_MANAGER_TOKEN=your-token \
   solace-gatus
 ```
 
-Open http://localhost:8080
+## Optional
 
-## Metrics
-
-`metrics: true` exposes Prometheus format at `/metrics` on the Gatus service itself.
-Stalwart's own metrics (`/metrics/prometheus`) are a separate concern — enable in Stalwart
-telemetry settings if you want mail workload graphs in Grafana.
+- **Status page auth:** `GATUS_ADMIN_USERNAME` / `GATUS_ADMIN_PASSWORD`
+- **VPS SSH monitor:** see `vps/gatus-monitor.sh` and `config.vps-ssh.endpoints.yaml`

@@ -10,9 +10,7 @@ write_base_config() {
 		return 0
 	fi
 
-	if [ ! -f /data/config.yaml ]; then
-		cp /etc/gatus/config.default.yaml /data/config.yaml
-	fi
+	cp /etc/gatus/config.default.yaml /data/config.yaml
 }
 
 inject_basic_auth() {
@@ -35,6 +33,19 @@ inject_basic_auth() {
 		cat /data/config.yaml
 	} > /data/config.yaml.tmp
 	mv /data/config.yaml.tmp /data/config.yaml
+}
+
+export_prometheus_basic_auth() {
+	if [ -z "${prometheus_user:-}" ] || [ -z "${prometheus_password:-}" ]; then
+		echo "prometheus_user and prometheus_password are required for stalwart-metrics." >&2
+		return 0
+	fi
+
+	export PROMETHEUS_BASIC_AUTH=$(
+		printf '%s:%s' "$prometheus_user" "$prometheus_password" \
+			| base64 -w0 2>/dev/null \
+			|| printf '%s:%s' "$prometheus_user" "$prometheus_password" | base64 | tr -d '\n'
+	)
 }
 
 append_vps_ssh_endpoints() {
@@ -83,43 +94,10 @@ append_vps_ssh_endpoints() {
 	} >> /data/config.yaml
 }
 
-append_stalwart_metrics_endpoints() {
-	if [ -z "${STALWART_METRICS_USERNAME:-}" ] || [ -z "${STALWART_METRICS_PASSWORD:-}" ]; then
-		return 0
-	fi
-
-	if grep -q 'name: stalwart-metrics' /data/config.yaml 2>/dev/null; then
-		return 0
-	fi
-
-	STALWART_METRICS_BASIC_AUTH=$(
-		printf '%s:%s' "$STALWART_METRICS_USERNAME" "$STALWART_METRICS_PASSWORD" \
-			| base64 -w0 2>/dev/null \
-			|| printf '%s:%s' "$STALWART_METRICS_USERNAME" "$STALWART_METRICS_PASSWORD" | base64 | tr -d '\n'
-	)
-
-	{
-		echo ""
-		echo "  - name: stalwart-metrics"
-		echo "    group: Mail"
-		echo "    url: https://mail.solace.onl/metrics/prometheus"
-		echo "    interval: 60s"
-		echo "    client:"
-		echo "      timeout: 15s"
-		echo "      headers:"
-		echo "        Authorization: \"Basic ${STALWART_METRICS_BASIC_AUTH}\""
-		echo "    conditions:"
-		echo "      - \"[STATUS] == 200\""
-		echo "      - \"[BODY] == pat(*queue_count*)\""
-		echo "      - \"[BODY] == pat(*smtp_active_connections*)\""
-		echo "      - \"[BODY] == pat(*delivery_active_connections*)\""
-	} >> /data/config.yaml
-}
-
 write_base_config
 inject_basic_auth
-append_stalwart_metrics_endpoints
 append_vps_ssh_endpoints
+export_prometheus_basic_auth
 
 export GATUS_CONFIG_PATH="${GATUS_CONFIG_PATH:-/data/config.yaml}"
 
