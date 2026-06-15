@@ -76,5 +76,5 @@ endpoints:
       - "[CONNECTED] == true"
 
 # :25 and :465 cannot be probed from Railway (outbound SMTP ports are blocked).
-# JMAP + IMAP + slot-manager cover the public mail path. For SMTP/submission and
-# VPS internals, use the optional SSH monitor (vps/gatus-monitor.sh).
+# For send/receive telemetry, enable Stalwart Prometheus and set STALWART_METRICS_* on
+# Gatus (see gatus/README.md and scripts/enable-prometheus-metrics.sh).

@@ -36,6 +36,39 @@ repo — do not reuse the Stalwart mail service.
 
 The JMAP check is the most important mail probe — it exercises the same path remote clients use.
 
+## Stalwart send/receive metrics (optional)
+
+Railway cannot probe SMTP ports `:25` / `:465` outbound. Instead, use Stalwart's
+[Prometheus exporter](https://stalw.art/docs/telemetry/metrics/prometheus/) on
+`https://mail.solace.onl/metrics/prometheus` (same HTTPS path as JMAP).
+
+**Step 1 — Enable on Stalwart (once):**
+
+```bash
+export STALWART_ADMIN_TOKEN=...
+export STALWART_METRICS_USERNAME=prometheus
+export STALWART_METRICS_PASSWORD='choose-a-strong-password'
+./scripts/enable-prometheus-metrics.sh
+```
+
+**Step 2 — On the Gatus Railway service, set:**
+
+```
+STALWART_METRICS_USERNAME=prometheus
+STALWART_METRICS_PASSWORD=<same password>
+```
+
+Redeploy Gatus. The entrypoint adds a `stalwart-metrics` monitor that checks:
+
+| Metric | Meaning |
+|--------|---------|
+| `queue_count` | Outbound delivery queue depth |
+| `smtp_active_connections` | Inbound SMTP activity |
+| `delivery_active_connections` | Outbound send activity |
+
+This confirms the telemetry pipeline is live. For graphs and alerting on rates/errors,
+scrape the same endpoint with Prometheus + [Grafana dashboard #23498](https://grafana.com/grafana/dashboards/23498-service-stalwart/).
+
 ## VPS internal monitoring (optional)
 
 Public probes cannot see localhost services (frps dashboard, Postfix queue, systemd). For that:

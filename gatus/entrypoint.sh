@@ -83,8 +83,42 @@ append_vps_ssh_endpoints() {
 	} >> /data/config.yaml
 }
 
+append_stalwart_metrics_endpoints() {
+	if [ -z "${STALWART_METRICS_USERNAME:-}" ] || [ -z "${STALWART_METRICS_PASSWORD:-}" ]; then
+		return 0
+	fi
+
+	if grep -q 'name: stalwart-metrics' /data/config.yaml 2>/dev/null; then
+		return 0
+	fi
+
+	STALWART_METRICS_BASIC_AUTH=$(
+		printf '%s:%s' "$STALWART_METRICS_USERNAME" "$STALWART_METRICS_PASSWORD" \
+			| base64 -w0 2>/dev/null \
+			|| printf '%s:%s' "$STALWART_METRICS_USERNAME" "$STALWART_METRICS_PASSWORD" | base64 | tr -d '\n'
+	)
+
+	{
+		echo ""
+		echo "  - name: stalwart-metrics"
+		echo "    group: Mail"
+		echo "    url: https://mail.solace.onl/metrics/prometheus"
+		echo "    interval: 60s"
+		echo "    client:"
+		echo "      timeout: 15s"
+		echo "      headers:"
+		echo "        Authorization: \"Basic ${STALWART_METRICS_BASIC_AUTH}\""
+		echo "    conditions:"
+		echo "      - \"[STATUS] == 200\""
+		echo "      - \"[BODY] == pat(*queue_count*)\""
+		echo "      - \"[BODY] == pat(*smtp_active_connections*)\""
+		echo "      - \"[BODY] == pat(*delivery_active_connections*)\""
+	} >> /data/config.yaml
+}
+
 write_base_config
 inject_basic_auth
+append_stalwart_metrics_endpoints
 append_vps_ssh_endpoints
 
 export GATUS_CONFIG_PATH="${GATUS_CONFIG_PATH:-/data/config.yaml}"
