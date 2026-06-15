@@ -211,12 +211,16 @@ finalize_active_slot() {
 	done
 
 	apply_weight_split "$target_slot" 100 100
-	set_slot_state "$other_slot" drain
-	if ! wait_for_stable_slot_up "$target_slot" 3; then
-		set_slot_state "$other_slot" ready
+	if ! wait_for_stable_slot_up "$target_slot" 5; then
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi
+	if ! wait_for_edge_jmap; then
+		rollback_finalize "$target_slot" "$other_slot"
+		return 1
+	fi
+
+	set_slot_state "$other_slot" drain
 	if ! wait_for_edge_jmap; then
 		set_slot_state "$other_slot" ready
 		rollback_finalize "$target_slot" "$other_slot"
