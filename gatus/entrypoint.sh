@@ -10,9 +10,37 @@ write_base_config() {
 		return 0
 	fi
 
-	if [ ! -f /data/config.yaml ]; then
-		cp /etc/gatus/config.default.yaml /data/config.yaml
+	# Refresh baked-in config each boot so deploys pick up repo changes.
+	# SQLite history stays on the volume; only config.yaml is overwritten.
+	# Set GATUS_PRESERVE_CONFIG=true to keep manual edits on the volume.
+	if [ "${GATUS_PRESERVE_CONFIG:-false}" = "true" ] && [ -f /data/config.yaml ]; then
+		return 0
 	fi
+
+	cp /etc/gatus/config.default.yaml /data/config.yaml
+}
+
+append_slot_status_endpoint() {
+	if [ -z "${SLOT_MANAGER_TOKEN:-}" ]; then
+		return 0
+	fi
+
+	if grep -q 'name: slot-blue-green' /data/config.yaml 2>/dev/null; then
+		return 0
+	fi
+
+	{
+		echo ""
+		echo "  - name: slot-blue-green"
+		echo "    group: Mail"
+		echo "    url: https://mail.solace.onl/slot-manager/status"
+		echo "    interval: 60s"
+		echo "    client:"
+		echo "      headers:"
+		echo "        Authorization: \"Bearer ${SLOT_MANAGER_TOKEN}\""
+		echo "    conditions:"
+		echo "      - \"[STATUS] == 200\""
+	} >> /data/config.yaml
 }
 
 inject_basic_auth() {
@@ -85,6 +113,7 @@ append_vps_ssh_endpoints() {
 
 write_base_config
 inject_basic_auth
+append_slot_status_endpoint
 append_vps_ssh_endpoints
 
 export GATUS_CONFIG_PATH="${GATUS_CONFIG_PATH:-/data/config.yaml}"

@@ -7,15 +7,17 @@ repo — do not reuse the Stalwart mail service.
 ## Railway setup
 
 1. In the Solace Railway project, **New Service → GitHub Repo** → `IIRoan/stalwart`.
-2. Set **Root Directory** to `gatus`.
-3. Attach a **volume** mounted at `/data` (SQLite history + config persistence).
+2. Set **Root Directory** to `gatus` (required — otherwise Railway uses the Stalwart
+   `railway.toml` at repo root and healthchecks `/healthz/ready` instead of Gatus `/health`).
+3. Attach a **volume** mounted at `/data` (SQLite history).
 4. Set **custom domain** `status.solace.onl`.
-5. Configure variables (see [.env.example](.env.example)):
+5. Under **Settings → Deploy → Healthcheck Path**, set `/health` (not `/healthz/ready`).
+6. Configure variables (see [.env.example](.env.example)):
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `PORT` | yes | Railway sets this; Gatus listens on `${PORT}` |
-| `SLOT_MANAGER_TOKEN` | yes | Bearer token for `GET /slot-manager/status` |
+| `SLOT_MANAGER_TOKEN` | no | Bearer token for `GET /slot-manager/status` (enables blue/green monitor) |
 | `GATUS_ADMIN_USERNAME` | no | HTTP basic auth on the status page |
 | `GATUS_ADMIN_PASSWORD` | no | Pair with username above |
 | `SLACK_WEBHOOK_URL` | no | Alerts (uncomment `alerting:` in config too) |
