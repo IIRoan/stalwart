@@ -84,7 +84,7 @@ endpoints:
 
   - name: submission-starttls
     group: Mail
-    url: starttls://mail.solace.onl:587
+    url: starttls://mail.solace.onl:465
     interval: 5m
     client:
       timeout: 10s
