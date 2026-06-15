@@ -586,8 +586,8 @@ activate_slot() {
 		return 0
 	}
 
-	log info "Requesting VPS promotion for slot=${FRPC_SLOT} (before Railway health gate)."
-	if curl -fsS --connect-timeout 5 --max-time 120 \
+	log info "Requesting VPS promotion for slot=${FRPC_SLOT}."
+	if curl -fsS --connect-timeout 5 --max-time 60 \
 		-X POST "${SLOT_MANAGER_URL:-https://mail.solace.onl/slot-manager}/activate" \
 		-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
 		-H "Content-Type: application/json" \
@@ -596,7 +596,8 @@ activate_slot() {
 		return 0
 	fi
 
-	die "VPS slot promotion failed; refusing to open Railway health gate."
+	log warn "VPS slot promotion failed; slot watcher may catch up."
+	return 1
 }
 
 start_frpc() {
@@ -629,10 +630,9 @@ resolve_slot
 start_health_server
 start_stalwart
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
-	start_frpc
-	sleep "${SLOT_PROMOTION_DELAY_SECONDS:-15}"
-	activate_slot
+start_frpc
 mark_health_ready
+activate_slot || log warn "VPS slot promotion incomplete; continuing with overlap window."
 
 i=0
 while [ "$i" -lt 30 ]; do

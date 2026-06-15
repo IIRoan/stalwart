@@ -159,8 +159,9 @@ wait_for_slot_jmap() {
 
 wait_for_edge_jmap() {
 	host="${HTTP_HEALTHCHECK_HOST:-mail.solace.onl}"
+	max_wait="${1:-15}"
 	i=0
-	while [ "$i" -lt 30 ]; do
+	while [ "$i" -lt "$max_wait" ]; do
 		if curl -fsS --max-time 3 "https://${host}/jmap/session" >/dev/null 2>&1; then
 			return 0
 		fi
@@ -207,7 +208,10 @@ finalize_active_slot() {
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi
-	if ! wait_for_stable_slot_up "$target_slot" 10; then
+
+	# Warm the target through HAProxy while the incumbent still carries traffic.
+	set_slot_weights 100 100
+	if ! wait_for_stable_slot_up "$target_slot" 3; then
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi
@@ -217,11 +221,11 @@ finalize_active_slot() {
 		green) set_slot_weights 0 100 ;;
 	esac
 
-	if ! wait_for_stable_slot_up "$target_slot" 5; then
+	if ! wait_for_stable_slot_up "$target_slot" 3; then
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi
-	if ! wait_for_edge_jmap; then
+	if ! wait_for_edge_jmap 15; then
 		rollback_finalize "$target_slot" "$other_slot"
 		return 1
 	fi
@@ -351,7 +355,7 @@ CURRENT_SLOT="$(read_active_slot)"
 
 if [ "$CURRENT_SLOT" = "$TARGET_SLOT" ]; then
 	set_slot_state "$TARGET_SLOT" ready
-	wait_for_slot_up "$TARGET_SLOT"
+	set_slot_weights 100 100
 	wait_for_http_ready "$TARGET_SLOT"
 	finalize_active_slot "$TARGET_SLOT"
 	echo "Active slot already set to $TARGET_SLOT."
@@ -362,7 +366,7 @@ OTHER_SLOT="$CURRENT_SLOT"
 
 # Verify the target slot in HAProxy while the current slot still carries traffic.
 set_slot_state "$TARGET_SLOT" ready
-wait_for_slot_up "$TARGET_SLOT"
+set_slot_weights 100 100
 wait_for_http_ready "$TARGET_SLOT"
 
 if [ "$GRADUAL_SWITCH" = "1" ]; then
