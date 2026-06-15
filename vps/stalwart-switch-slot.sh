@@ -129,21 +129,16 @@ ramp_exclusive_weights() {
 	target_slot="$1"
 	incumbent_slot="$2"
 
-	for step in 90 70 50 30 10 0; do
-		target_weight=$((100 - step))
-		incumbent_weight=$step
+	# Keep warm weights; edge must pass while the incumbent still carries traffic.
+	if ! wait_for_edge_jmap 20; then
+		echo "Edge probe failed before exclusive cutover." >&2
+		return 1
+	fi
 
-		case "$target_slot" in
-			blue) set_slot_weights "$incumbent_weight" "$target_weight" ;;
-			green) set_slot_weights "$target_weight" "$incumbent_weight" ;;
-		esac
-
-		if ! wait_for_edge_jmap 4; then
-			echo "Edge probe failed during ramp (${incumbent_weight}/${target_weight})." >&2
-			return 1
-		fi
-		sleep 0.5
-	done
+	case "$target_slot" in
+		blue) set_slot_weights 100 0 ;;
+		green) set_slot_weights 0 100 ;;
+	esac
 
 	return 0
 }

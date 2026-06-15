@@ -587,7 +587,7 @@ activate_slot() {
 	}
 
 	log info "Requesting VPS promotion for slot=${FRPC_SLOT}."
-	if curl -fsS --connect-timeout 5 --max-time 60 \
+	if curl -fsS --connect-timeout 5 --max-time 90 \
 		-X POST "${SLOT_MANAGER_URL:-https://mail.solace.onl/slot-manager}/activate" \
 		-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
 		-H "Content-Type: application/json" \

@@ -85,8 +85,12 @@ systemctl status haproxy frps frpc-relay postfix stalwart-slot-manager stalwart-
 cat /etc/haproxy/stalwart-active-slot
 
 # Manual slot switch
-sudo /usr/local/bin/stalwart-switch-slot.sh blue
-sudo /usr/local/bin/stalwart-switch-slot.sh green
+sudo /usr/local/bin/stalwart-switch-slot blue
+sudo /usr/local/bin/stalwart-switch-slot green
+
+# Install / update VPS scripts from repo checkout
+sudo install -m 755 vps/stalwart-switch-slot.sh /usr/local/bin/stalwart-switch-slot
+sudo install -m 644 vps/stalwart-slot-manager.py /usr/local/bin/stalwart-slot-manager.py
 
 # Config validation
 sudo haproxy -c -f /etc/haproxy/haproxy.cfg && sudo systemctl reload haproxy
