@@ -82,9 +82,9 @@ endpoints:
     conditions:
       - "[CONNECTED] == true"
 
-  - name: submission-starttls
+  - name: submission-tls
     group: Mail
-    url: starttls://mail.solace.onl:465
+    url: tls://mail.solace.onl:465
     interval: 5m
     client:
       timeout: 10s
