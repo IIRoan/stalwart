@@ -1,0 +1,23 @@
+# Reference fragment for VPS SSH monitoring.
+# The entrypoint appends an equivalent block when VPS_MONITOR_SSH_USERNAME and
+# VPS_MONITOR_SSH_PRIVATE_KEY(_B64) are set. Install vps/gatus-monitor.sh on
+# the VPS and restrict the SSH user with authorized_keys `command=`.
+#
+#  - name: vps-health
+#    group: VPS
+#    url: ssh://mail.solace.onl:22
+#    interval: 60s
+#    ssh:
+#      username: "gatus-monitor"
+#      private-key: |
+#        -----BEGIN OPENSSH PRIVATE KEY-----
+#        ...
+#        -----END OPENSSH PRIVATE KEY-----
+#    body: |
+#      {
+#        "command": "/usr/local/bin/gatus-monitor.sh"
+#      }
+#    conditions:
+#      - "[CONNECTED] == true"
+#      - "[STATUS] == 0"
+#      - "[BODY].status == healthy"

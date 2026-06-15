@@ -1,0 +1,6 @@
+.git
+.gitignore
+.env
+.env.*
+*.md
+config.vps-ssh.endpoints.yaml

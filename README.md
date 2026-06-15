@@ -135,12 +135,20 @@ slot when the active tunnel goes down, not when both slots are up during overlap
 | `railway-entrypoint.sh` | Stalwart + health server + frpc + relay setup |
 | `railway.toml` | Railway healthcheck config |
 | `Dockerfile` | Stalwart image + frpc + stalwart-cli |
+| `gatus/` | Gatus status page for Railway (`status.solace.onl`) |
 | `vps/haproxy.cfg` | Public edge proxy (install on VPS) |
 | `vps/frps.toml` | frp server for inbound tunnels |
 | `vps/frpc-relay.toml` | STCP proxy for outbound Postfix |
 | `vps/postfix-*.cf` | Outbound relay Postfix config |
 | `vps/stalwart-slot-*.py` | Slot manager API and auto-promotion |
+| `vps/gatus-monitor.sh` | VPS health JSON for Gatus SSH probes |
 | `VPS_SERVICES.md` | VPS service reference and ops commands |
+
+## Status page (Gatus)
+
+Uptime monitoring for Solace and mail lives in [`gatus/`](gatus/). Deploy it as a **second
+Railway service** (root directory `gatus`, volume at `/data`, domain `status.solace.onl`).
+See [gatus/README.md](gatus/README.md).
 
 ## Railway environment variables
 

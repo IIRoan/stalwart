@@ -1,0 +1,93 @@
+storage:
+  type: sqlite
+  path: /data/gatus.db
+
+web:
+  address: 0.0.0.0
+  port: ${PORT}
+
+metrics: true
+
+ui:
+  title: "Solace Status"
+  header: "Solace Service Health"
+  description: "Uptime for Solace (solace.onl) and mail (mail.solace.onl)."
+  link: "https://solace.onl"
+  default-sort-by: group
+
+# Optional alerting — set SLACK_WEBHOOK_URL (or others) in Railway and uncomment:
+# alerting:
+#   slack:
+#     webhook-url: ${SLACK_WEBHOOK_URL}
+
+endpoints:
+  - name: website
+    group: Application
+    url: https://solace.onl/
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[RESPONSE_TIME] < 3000"
+      - "[CERTIFICATE_EXPIRATION] > 336h"
+
+  - name: api-health
+    group: Application
+    url: https://api.solace.onl/api/health
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == ok"
+      - "[RESPONSE_TIME] < 2000"
+      - "[CERTIFICATE_EXPIRATION] > 336h"
+
+  - name: jmap-session
+    group: Mail
+    url: https://mail.solace.onl/jmap/session
+    interval: 30s
+    client:
+      timeout: 10s
+    conditions:
+      - "[STATUS] == 200"
+      - "[RESPONSE_TIME] < 5000"
+      - "[CERTIFICATE_EXPIRATION] > 336h"
+
+  - name: slot-manager-active
+    group: Mail
+    url: https://mail.solace.onl/slot-manager/active
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: slot-blue-green
+    group: Mail
+    url: https://mail.solace.onl/slot-manager/status
+    interval: 60s
+    client:
+      headers:
+        Authorization: "Bearer ${SLOT_MANAGER_TOKEN}"
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: smtp-inbound
+    group: Mail
+    url: tcp://mail.solace.onl:25
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: imaps
+    group: Mail
+    url: tcp://mail.solace.onl:993
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: submission-starttls
+    group: Mail
+    url: starttls://mail.solace.onl:587
+    interval: 5m
+    client:
+      timeout: 10s
+    conditions:
+      - "[CONNECTED] == true"
+      - "[CERTIFICATE_EXPIRATION] > 336h"

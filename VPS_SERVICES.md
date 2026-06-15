@@ -69,6 +69,12 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 - **Role:** Auto-promotes blue/green when a Railway frpc tunnel is healthy.
 - **Repo:** `vps/stalwart-slot-watcher.py` → `/usr/local/bin/stalwart-slot-watcher`
 
+### gatus-monitor (optional)
+
+- **Role:** JSON health snapshot for Gatus SSH probes from Railway (`status.solace.onl`).
+- **Repo:** `vps/gatus-monitor.sh` → `/usr/local/bin/gatus-monitor.sh`
+- **Setup:** See [gatus/README.md](gatus/README.md#vps-internal-monitoring-optional)
+
 ## Operations
 
 ```bash
