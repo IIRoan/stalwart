@@ -64,8 +64,8 @@ The VPS slot watcher promotes a slot when its frp tunnel is healthy.
 
 | Slot  | SMTP frps port | HTTPS frps port |
 |-------|----------------|-----------------|
-| blue  | 10025          | 10443           |
-| green | 11025          | 11443           |
+| blue  | 10025          | 18080           |
+| green | 11025          | 19080           |
 
 Railway's `FRPC_SLOT=auto` picks the **inactive** side so a new deploy tunnels
 up before the VPS switches traffic.
@@ -114,16 +114,17 @@ sequenceDiagram
     R->>R: Start Stalwart + frpc (inactive slot)
     H-->>R: 503 until all checks pass
     R->>R: smtp + https proxies online, relay up
-    H-->>R: 200 OK
-    Note over R: Railway marks deploy healthy
     R->>V: POST /activate {slot}
-    V->>X: Gradual switch + drain old slot
+    V->>X: Instant cutover to new slot
+    R->>H: 200 OK
+    Note over R: Railway marks deploy healthy after VPS cutover
     Note over X: slot-watcher only fails over if active tunnel dies
 ```
 
 Railway returns **503** on `/healthz/ready` until Stalwart, frpc mail proxies,
-and the outbound relay are all running. Only then does Railway mark the deploy
-healthy and the container requests VPS promotion via `POST /slot-manager/activate`.
+and the outbound relay are all running. The container then requests VPS promotion
+via `POST /slot-manager/activate` and only opens the Railway health gate after
+the VPS has cut traffic over to this slot.
 
 The VPS `stalwart-slot-watcher` is **failover-only** — it promotes the other
 slot when the active tunnel goes down, not when both slots are up during overlap.
@@ -140,7 +141,9 @@ slot when the active tunnel goes down, not when both slots are up during overlap
 | `vps/frps.toml` | frp server for inbound tunnels |
 | `vps/frpc-relay.toml` | STCP proxy for outbound Postfix |
 | `vps/postfix-*.cf` | Outbound relay Postfix config |
-| `vps/stalwart-slot-*.py` | Slot manager API and auto-promotion |
+| `vps/stalwart-slot-*.py` | Slot manager API and failover watcher |
+| `vps/stalwart-switch-slot.sh` | HAProxy blue/green cutover (instant by default) |
+| `vps/haproxy-sync-active-slot.sh` | Reconcile HAProxy weights after reload |
 | `vps/gatus-monitor.sh` | VPS health JSON for Gatus SSH probes |
 | `VPS_SERVICES.md` | VPS service reference and ops commands |
 
@@ -157,7 +160,7 @@ See [gatus/README.md](gatus/README.md).
 | `FRPS_ADDR` | yes | VPS IP or hostname |
 | `FRPC_TOKEN` | yes | frp auth token (must match `vps/frps.toml`) |
 | `STALWART_ADMIN_TOKEN` | yes | Updates relay route at startup |
-| `SLOT_MANAGER_TOKEN` | yes | Promotes this container's slot after health gate opens |
+| `SLOT_MANAGER_TOKEN` | yes | Promotes this container's slot before the Railway health gate opens |
 | `PORT` | yes | Set to `8090` — Railway healthcheck port |
 | `PGHOST`, `PGPASSWORD`, etc. | yes | PostgreSQL (Railway plugin) |
 | `FRPC_SLOT` | no | `blue`, `green`, or `auto` (default) |
@@ -178,6 +181,7 @@ healthy. The endpoint returns **503** until all of the following are true:
 - Stalwart process alive and listening on `:25` and `:8080`
 - frpc process alive with `smtp-{slot}` and `https-{slot}` proxies online
 - Outbound relay STCP visitor listening on `:2525`
+- VPS slot promotion succeeded (`POST /slot-manager/activate`) when `SLOT_MANAGER_TOKEN` is set
 
 Stalwart's real HTTP listener on `:8080` only works through HAProxy with PROXY
 protocol, so it cannot be used as the Railway healthcheck target directly.

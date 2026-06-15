@@ -586,17 +586,17 @@ activate_slot() {
 		return 0
 	}
 
-	log info "Requesting VPS promotion for slot=${FRPC_SLOT}."
+	log info "Requesting VPS promotion for slot=${FRPC_SLOT} (before Railway health gate)."
 	if curl -fsS --connect-timeout 5 --max-time 120 \
 		-X POST "${SLOT_MANAGER_URL:-https://mail.solace.onl/slot-manager}/activate" \
 		-H "Authorization: Bearer ${SLOT_MANAGER_TOKEN}" \
 		-H "Content-Type: application/json" \
-		-d "{\"slot\":\"${FRPC_SLOT}\"}" >/dev/null 2>&1; then
+		-d "{\"slot\":\"${FRPC_SLOT}\"}" >/dev/null; then
 		log info "VPS promoted slot=${FRPC_SLOT}."
 		return 0
 	fi
 
-	log warn "VPS slot promotion failed; watcher may fail over later."
+	die "VPS slot promotion failed; refusing to open Railway health gate."
 }
 
 start_frpc() {
@@ -630,8 +630,8 @@ start_health_server
 start_stalwart
 sleep "${STALWART_BOOT_DELAY_SECONDS:-3}"
 start_frpc
-mark_health_ready
 activate_slot
+mark_health_ready
 
 i=0
 while [ "$i" -lt 30 ]; do

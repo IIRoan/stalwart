@@ -66,14 +66,14 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 
 ### stalwart-slot-watcher
 
-- **Role:** Auto-promotes blue/green when a Railway frpc tunnel is healthy.
+- **Role:** Failover-only — promotes the other slot when the active tunnel dies.
 - **Repo:** `vps/stalwart-slot-watcher.py` → `/usr/local/bin/stalwart-slot-watcher`
 
 ### gatus-monitor (optional)
 
 - **Role:** JSON health snapshot for Gatus SSH probes from Railway (`status.solace.onl`).
 - **Repo:** `vps/gatus-monitor.sh` → `/usr/local/bin/gatus-monitor.sh`
-- **Setup:** See [gatus/README.md](gatus/README.md#vps-internal-monitoring-optional)
+- **Setup:** See [gatus/README.md](gatus/README.md#optional)
 
 ## Operations
 
@@ -90,6 +90,7 @@ sudo /usr/local/bin/stalwart-switch-slot.sh green
 
 # Config validation
 sudo haproxy -c -f /etc/haproxy/haproxy.cfg && sudo systemctl reload haproxy
+sudo /usr/local/bin/haproxy-sync-active-slot.sh
 sudo postfix check && sudo systemctl reload postfix
 ```
 

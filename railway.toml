@@ -5,5 +5,5 @@ dockerfilePath = "Dockerfile"
 [deploy]
 healthcheckPath = "/healthz/ready"
 healthcheckTimeout = 300
-overlapSeconds = 60
-drainingSeconds = 90
+overlapSeconds = 90
+drainingSeconds = 120

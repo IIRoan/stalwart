@@ -25,8 +25,8 @@ esac
 
 ACTIVE_SLOT_FILE="/etc/haproxy/stalwart-active-slot"
 HTTP_READY_TIMEOUT="${HTTP_READY_TIMEOUT:-120}"
-HTTP_HEALTHCHECK_HOST="${HTTP_HEALTHCHECK_HOST:-mail.solace.onl}"
 HAPROXY_SOCKET="${HAPROXY_SOCKET:-/run/haproxy/admin.sock}"
+GRADUAL_SWITCH="${GRADUAL_SWITCH:-0}"
 OVERLAP_SECONDS="${OVERLAP_SECONDS:-30}"
 FINAL_DRAIN_SECONDS="${FINAL_DRAIN_SECONDS:-5}"
 TRANSITION_SECONDS="${TRANSITION_SECONDS:-}"
@@ -131,7 +131,6 @@ wait_for_tcp_port() {
 }
 
 wait_for_http_ready() {
-	# Raw frp admin ports require PROXY protocol; HAProxy health checks handle that.
 	slot="$1"
 	i=0
 	while [ "$i" -lt "$HTTP_READY_TIMEOUT" ]; do
@@ -189,6 +188,42 @@ wait_for_slot_up() {
 	done
 }
 
+gradual_switch() {
+	other_slot="$1"
+
+	set_slot_state "$other_slot" ready
+	step_sleep=$((TRANSITION_SECONDS / TRANSITION_STEPS))
+	if [ "$step_sleep" -lt 1 ]; then
+		step_sleep=1
+	fi
+
+	i=0
+	while [ "$i" -le "$TRANSITION_STEPS" ]; do
+		target_weight=$((i * 100 / TRANSITION_STEPS))
+		other_weight=$((100 - target_weight))
+
+		case "$TARGET_SLOT" in
+			blue)
+				set_slot_weights "$target_weight" "$other_weight"
+				;;
+			green)
+				set_slot_weights "$other_weight" "$target_weight"
+				;;
+		esac
+
+		if [ "$i" -lt "$TRANSITION_STEPS" ]; then
+			sleep "$step_sleep"
+		fi
+		i=$((i + 1))
+	done
+
+	set_slot_state "$other_slot" drain
+	sleep "$FINAL_DRAIN_SECONDS"
+	wait_for_slot_up "$TARGET_SLOT"
+	finalize_active_slot "$TARGET_SLOT"
+	echo "Active slot shifted to $TARGET_SLOT over ${TRANSITION_SECONDS}s with ${FINAL_DRAIN_SECONDS}s final drain buffer."
+}
+
 if [ ! -S "$HAPROXY_SOCKET" ]; then
 	echo "HAProxy socket $HAPROXY_SOCKET is not available." >&2
 	exit 1
@@ -210,38 +245,14 @@ fi
 
 OTHER_SLOT="$CURRENT_SLOT"
 
+# Verify the target slot in HAProxy while the current slot still carries traffic.
 set_slot_state "$TARGET_SLOT" ready
-set_slot_state "$OTHER_SLOT" ready
 wait_for_slot_up "$TARGET_SLOT"
 wait_for_http_ready "$TARGET_SLOT"
 
-step_sleep=$((TRANSITION_SECONDS / TRANSITION_STEPS))
-if [ "$step_sleep" -lt 1 ]; then
-	step_sleep=1
+if [ "$GRADUAL_SWITCH" = "1" ]; then
+	gradual_switch "$OTHER_SLOT"
+else
+	finalize_active_slot "$TARGET_SLOT"
+	echo "Active slot switched to $TARGET_SLOT (instant cutover)."
 fi
-
-i=0
-while [ "$i" -le "$TRANSITION_STEPS" ]; do
-	target_weight=$((i * 100 / TRANSITION_STEPS))
-	other_weight=$((100 - target_weight))
-
-	case "$TARGET_SLOT" in
-		blue)
-			set_slot_weights "$target_weight" "$other_weight"
-			;;
-		green)
-			set_slot_weights "$other_weight" "$target_weight"
-			;;
-	esac
-
-	if [ "$i" -lt "$TRANSITION_STEPS" ]; then
-		sleep "$step_sleep"
-	fi
-	i=$((i + 1))
-done
-
-set_slot_state "$OTHER_SLOT" drain
-sleep "$FINAL_DRAIN_SECONDS"
-wait_for_slot_up "$TARGET_SLOT"
-finalize_active_slot "$TARGET_SLOT"
-echo "Active slot shifted to $TARGET_SLOT over ${TRANSITION_SECONDS}s with ${FINAL_DRAIN_SECONDS}s final drain buffer."

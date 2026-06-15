@@ -57,4 +57,5 @@ docker run --rm -p 8080:8080 \
 ## Optional
 
 - **Status page auth:** `GATUS_ADMIN_USERNAME` / `GATUS_ADMIN_PASSWORD`
-- **VPS SSH monitor:** see `vps/gatus-monitor.sh` and `config.vps-ssh.endpoints.yaml`
+- **VPS SSH monitor:** set `VPS_MONITOR_SSH_USERNAME` and `VPS_MONITOR_SSH_PRIVATE_KEY` (or `_B64`);
+  install `vps/gatus-monitor.sh` on the VPS and restrict the SSH user with `authorized_keys command=`
