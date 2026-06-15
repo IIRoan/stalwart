@@ -68,13 +68,6 @@ endpoints:
     conditions:
       - "[STATUS] == 200"
 
-  - name: smtp-inbound
-    group: Mail
-    url: tcp://mail.solace.onl:25
-    interval: 60s
-    conditions:
-      - "[CONNECTED] == true"
-
   - name: imaps
     group: Mail
     url: tcp://mail.solace.onl:993
@@ -82,12 +75,6 @@ endpoints:
     conditions:
       - "[CONNECTED] == true"
 
-  - name: submission-tls
-    group: Mail
-    url: tls://mail.solace.onl:465
-    interval: 5m
-    client:
-      timeout: 10s
-    conditions:
-      - "[CONNECTED] == true"
-      - "[CERTIFICATE_EXPIRATION] > 336h"
+# :25 and :465 cannot be probed from Railway (outbound SMTP ports are blocked).
+# JMAP + IMAP + slot-manager cover the public mail path. For SMTP/submission and
+# VPS internals, use the optional SSH monitor (vps/gatus-monitor.sh).
