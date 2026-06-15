@@ -62,7 +62,14 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 
 - **Role:** HTTP API for active slot; triggers HAProxy runtime reconfiguration.
 - **Port:** 127.0.0.1:9081 (public via HAProxy `/slot-manager/`)
-- **Repo:** `vps/stalwart-slot-manager.py`
+- **Repo:** `vps/stalwart-slot-manager.py` → `/usr/local/bin/stalwart-slot-manager.py`
+- **Invokes:** `/usr/local/bin/stalwart-switch-slot` (no `.sh` suffix — see [Blue/green cutover](#bluegreen-cutover))
+
+### stalwart-switch-slot
+
+- **Role:** HAProxy blue/green cutover when Railway calls `POST /slot-manager/activate`.
+- **Repo:** `vps/stalwart-switch-slot.sh` → **`/usr/local/bin/stalwart-switch-slot`** (not `stalwart-switch-slot.sh`)
+- **Gotcha:** `stalwart-slot-manager.py` and `stalwart-slot-watcher.py` default to the path **without** `.sh`. Installing only to `stalwart-switch-slot.sh` leaves the old script in place and restores deploy-time 503s.
 
 ### stalwart-slot-watcher
 
@@ -74,6 +81,25 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 - **Role:** JSON health snapshot for Gatus SSH probes from Railway (`status.solace.onl`).
 - **Repo:** `vps/gatus-monitor.sh` → `/usr/local/bin/gatus-monitor.sh`
 - **Setup:** See [gatus/README.md](gatus/README.md#optional)
+
+## Blue/green cutover
+
+Railway picks the **inactive** slot (`FRPC_SLOT=auto`), starts frpc, then calls
+`POST /slot-manager/activate` **before** opening the Railway health gate. The VPS
+switch script:
+
+1. Leaves the **incumbent** at 100% weight and warms the target at 1%.
+2. Probes JMAP directly on the target frp port (`127.0.0.1:18080` or `:19080`).
+3. Confirms the public edge (`https://mail.solace.onl/jmap/session`) still works
+   while the incumbent carries traffic.
+4. Flips to exclusive weights (target 100%, incumbent 0%) and puts the old slot
+   in HAProxy maintenance.
+
+This avoids `<NOSRV>` / 503 windows when the old Railway container retires mid-cutover.
+Typical cutover time is ~5s.
+
+`stalwart-slot-watcher` is **failover-only** — it does not participate in normal
+deploys. See [README.md](README.md#bluegreen-deploys) for the full sequence.
 
 ## Operations
 

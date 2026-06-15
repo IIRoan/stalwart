@@ -115,9 +115,9 @@ sequenceDiagram
     H-->>R: 503 until all checks pass
     R->>R: smtp + https proxies online, relay up
     R->>V: POST /activate {slot}
-    V->>X: Instant cutover to new slot
+    V->>X: Warm target (1%), verify JMAP, exclusive cutover
     R->>H: 200 OK
-    Note over R: Railway marks deploy healthy after VPS cutover
+    Note over R: Health gate opens only after VPS cutover succeeds
     Note over X: slot-watcher only fails over if active tunnel dies
 ```
 
@@ -142,7 +142,7 @@ slot when the active tunnel goes down, not when both slots are up during overlap
 | `vps/frpc-relay.toml` | STCP proxy for outbound Postfix |
 | `vps/postfix-*.cf` | Outbound relay Postfix config |
 | `vps/stalwart-slot-*.py` | Slot manager API and failover watcher |
-| `vps/stalwart-switch-slot.sh` | HAProxy blue/green cutover (instant by default) |
+| `vps/stalwart-switch-slot.sh` | HAProxy blue/green cutover (warm weights → edge check → exclusive) |
 | `vps/haproxy-sync-active-slot.sh` | Reconcile HAProxy weights after reload |
 | `vps/gatus-monitor.sh` | VPS health JSON for Gatus SSH probes |
 | `VPS_SERVICES.md` | VPS service reference and ops commands |

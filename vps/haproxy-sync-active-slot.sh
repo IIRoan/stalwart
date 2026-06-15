@@ -3,7 +3,7 @@
 set -eu
 
 ACTIVE_SLOT_FILE="/etc/haproxy/stalwart-active-slot"
-SWITCH_COMMAND="${SWITCH_COMMAND:-/usr/local/bin/stalwart-switch-slot.sh}"
+SWITCH_COMMAND="${SWITCH_COMMAND:-/usr/local/bin/stalwart-switch-slot}"
 
 if [ ! -f "$ACTIVE_SLOT_FILE" ]; then
 	printf '%s\n' blue >"$ACTIVE_SLOT_FILE"
