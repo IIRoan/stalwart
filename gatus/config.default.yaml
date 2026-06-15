@@ -15,11 +15,6 @@ ui:
   link: "https://solace.onl"
   default-sort-by: group
 
-# Optional alerting — set SLACK_WEBHOOK_URL in Railway and uncomment:
-# alerting:
-#   slack:
-#     webhook-url: ${SLACK_WEBHOOK_URL}
-
 endpoints:
   - name: website
     group: Application
@@ -55,9 +50,8 @@ endpoints:
     group: Mail
     url: https://mail.solace.onl/slot-manager/status
     interval: 60s
-    client:
-      headers:
-        Authorization: "Bearer ${SLOT_MANAGER_TOKEN}"
+    headers:
+      Authorization: "Bearer ${SLOT_MANAGER_TOKEN}"
     conditions:
       - "[STATUS] == 200"
 
@@ -65,12 +59,12 @@ endpoints:
     group: Mail
     url: https://mail.solace.onl/metrics/prometheus
     interval: 60s
+    headers:
+      Authorization: "Basic __PROMETHEUS_BASIC_AUTH__"
     client:
       timeout: 15s
-      headers:
-        Authorization: "Basic ${PROMETHEUS_BASIC_AUTH}"
     conditions:
       - "[STATUS] == 200"
-      - "[BODY] == pat(*queue_count*)"
       - "[BODY] == pat(*smtp_active_connections*)"
       - "[BODY] == pat(*delivery_active_connections*)"
+      - "[BODY] == pat(*smtp_request_time_count*)"
