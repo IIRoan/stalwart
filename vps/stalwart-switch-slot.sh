@@ -99,16 +99,19 @@ set_slot_weights() {
 finalize_active_slot() {
 	target_slot="$1"
 
+	# Raise target weight before demoting the old slot. Reversing this order
+	# leaves a window where the old backend is in maint with weight 0 on the
+	# new slot, which makes HAProxy return 503 (<NOSRV>).
 	case "$target_slot" in
 		blue)
+			set_slot_weights 100 0
 			set_slot_state blue ready
 			set_slot_state green maint
-			set_slot_weights 100 0
 			;;
 		green)
+			set_slot_weights 0 100
 			set_slot_state green ready
 			set_slot_state blue maint
-			set_slot_weights 0 100
 			;;
 	esac
 
