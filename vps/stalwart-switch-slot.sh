@@ -91,8 +91,15 @@ set_slot_weights() {
 	green_weight="$2"
 
 	for backend in $ALL_BACKENDS; do
-		run_haproxy_command "set weight ${backend}/railway_blue ${blue_weight}%"
-		run_haproxy_command "set weight ${backend}/railway_green ${green_weight}%"
+		# Raise the target weight before lowering the old slot to avoid a
+		# per-backend window where both servers are at 0% (<NOSRV> / 503).
+		if [ "$blue_weight" -ge "$green_weight" ]; then
+			run_haproxy_command "set weight ${backend}/railway_blue ${blue_weight}%"
+			run_haproxy_command "set weight ${backend}/railway_green ${green_weight}%"
+		else
+			run_haproxy_command "set weight ${backend}/railway_green ${green_weight}%"
+			run_haproxy_command "set weight ${backend}/railway_blue ${blue_weight}%"
+		fi
 	done
 }
 
