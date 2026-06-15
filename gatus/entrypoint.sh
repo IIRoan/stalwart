@@ -37,7 +37,7 @@ inject_basic_auth() {
 
 inject_prometheus_auth() {
 	if [ -z "${prometheus_user:-}" ] || [ -z "${prometheus_password:-}" ]; then
-		echo "prometheus_user and prometheus_password are required for stalwart-metrics." >&2
+		echo "prometheus_user and prometheus_password are required for Stalwart Metrics monitors." >&2
 		return 0
 	fi
 

@@ -20,11 +20,26 @@
 | Application | `api.solace.onl/api/health` | Backend API |
 | Mail | `mail.solace.onl/jmap/session` | End-to-end mail path |
 | Mail | `mail.solace.onl/slot-manager/status` | Blue/green tunnels |
-| Mail | `mail.solace.onl/metrics/prometheus` | Stalwart send/receive metrics |
 
-The metrics monitor checks `queue_count`, `smtp_active_connections`, and
-`delivery_active_connections`. Enable Prometheus in the Stalwart WebUI
-(Settings → Telemetry → Metrics → Prometheus).
+### Stalwart Metrics group
+
+All monitors scrape `mail.solace.onl/metrics/prometheus` (URL hidden on the status page).
+Enable Prometheus in the Stalwart WebUI and set `prometheus_user` / `prometheus_password` on Gatus.
+
+| Monitor | What it checks |
+|---------|----------------|
+| `stalwart-exporter` | Prometheus endpoint alive |
+| `stalwart-smtp-receive` | Inbound SMTP connections, request timing, IPREV |
+| `stalwart-smtp-antispam` | SPF pass/temp/perm counters |
+| `stalwart-delivery` | Outbound delivery connection gauge |
+| `stalwart-imap` | IMAP connections and session starts |
+| `stalwart-jmap-http` | HTTP/JMAP connection and request metrics |
+| `stalwart-store` | Store iteration, user/domain counts |
+| `stalwart-error-counters` | Store errors, SMTP concurrency limit, calendar expansion errors |
+
+These verify that metric families are being exported. Counter **values** are cumulative —
+use Grafana ([dashboard #23498](https://grafana.com/grafana/dashboards/23498-service-stalwart/))
+for rate graphs and threshold alerts on rising error counts.
 
 ## Local test
 

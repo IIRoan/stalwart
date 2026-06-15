@@ -15,6 +15,16 @@ ui:
   link: "https://solace.onl"
   default-sort-by: group
 
+# Shared Prometheus scrape target (auth injected at boot).
+.prometheus: &prometheus
+  url: https://mail.solace.onl/metrics/prometheus
+  headers:
+    Authorization: "Basic __PROMETHEUS_BASIC_AUTH__"
+  client:
+    timeout: 15s
+  ui:
+    hide-url: true
+
 endpoints:
   - name: website
     group: Application
@@ -55,16 +65,78 @@ endpoints:
     conditions:
       - "[STATUS] == 200"
 
-  - name: stalwart-metrics
-    group: Mail
-    url: https://mail.solace.onl/metrics/prometheus
+  - name: stalwart-exporter
+    <<: *prometheus
+    group: Stalwart Metrics
     interval: 60s
-    headers:
-      Authorization: "Basic __PROMETHEUS_BASIC_AUTH__"
-    client:
-      timeout: 15s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*# HELP server_memory*)"
+      - "[BODY] == pat(*# TYPE server_memory*)"
+
+  - name: stalwart-smtp-receive
+    <<: *prometheus
+    group: Stalwart Metrics
+    interval: 60s
     conditions:
       - "[STATUS] == 200"
       - "[BODY] == pat(*smtp_active_connections*)"
-      - "[BODY] == pat(*delivery_active_connections*)"
       - "[BODY] == pat(*smtp_request_time_count*)"
+      - "[BODY] == pat(*smtp_iprev_pass*)"
+
+  - name: stalwart-smtp-antispam
+    <<: *prometheus
+    group: Stalwart Metrics
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*spf_pass*)"
+      - "[BODY] == pat(*spf_temp_error*)"
+      - "[BODY] == pat(*spf_perm_error*)"
+
+  - name: stalwart-delivery
+    <<: *prometheus
+    group: Stalwart Metrics
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*delivery_active_connections*)"
+      - "[BODY] == pat(*# HELP delivery_active_connections*)"
+
+  - name: stalwart-imap
+    <<: *prometheus
+    group: Stalwart Metrics
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*imap_active_connections*)"
+      - "[BODY] == pat(*imap_connection_start*)"
+
+  - name: stalwart-jmap-http
+    <<: *prometheus
+    group: Stalwart Metrics
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*http_active_connections*)"
+      - "[BODY] == pat(*http_request_time_count*)"
+
+  - name: stalwart-store
+    <<: *prometheus
+    group: Stalwart Metrics
+    interval: 120s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*store_data_iterate*)"
+      - "[BODY] == pat(*user_count*)"
+      - "[BODY] == pat(*domain_count*)"
+
+  - name: stalwart-error-counters
+    <<: *prometheus
+    group: Stalwart Metrics
+    interval: 120s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*store_unexpected_error*)"
+      - "[BODY] == pat(*smtp_concurrency_limit_exceeded*)"
+      - "[BODY] == pat(*calendar_rule_expansion_error*)"
