@@ -248,19 +248,7 @@ finalize_active_slot() {
 		return 1
 	fi
 
-	set_slot_state "$other_slot" drain
-	if ! wait_for_slot_jmap "$target_slot"; then
-		set_slot_state "$other_slot" ready
-		rollback_finalize "$target_slot" "$other_slot"
-		return 1
-	fi
-
 	set_slot_state "$other_slot" maint
-	case "$target_slot" in
-		blue) set_slot_weights 100 0 ;;
-		green) set_slot_weights 0 100 ;;
-	esac
-
 	printf '%s\n' "$target_slot" | tee "$ACTIVE_SLOT_FILE" >/dev/null
 }
 
