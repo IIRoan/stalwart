@@ -125,6 +125,29 @@ set_exclusive_weights() {
 	esac
 }
 
+ramp_exclusive_weights() {
+	target_slot="$1"
+	incumbent_slot="$2"
+
+	for step in 90 70 50 30 10 0; do
+		target_weight=$((100 - step))
+		incumbent_weight=$step
+
+		case "$target_slot" in
+			blue) set_slot_weights "$incumbent_weight" "$target_weight" ;;
+			green) set_slot_weights "$target_weight" "$incumbent_weight" ;;
+		esac
+
+		if ! wait_for_edge_jmap 4; then
+			echo "Edge probe failed during ramp (${incumbent_weight}/${target_weight})." >&2
+			return 1
+		fi
+		sleep 0.5
+	done
+
+	return 0
+}
+
 wait_for_stable_slot_up() {
 	slot="$1"
 	required="${2:-2}"
@@ -226,18 +249,13 @@ finalize_active_slot() {
 		rollback_finalize "$target_slot"
 		return 1
 	fi
+
+	set_slot_weights 100 100
 	if ! wait_for_stable_slot_up "$target_slot" 2; then
 		rollback_finalize "$target_slot"
 		return 1
 	fi
-
-	set_exclusive_weights "$target_slot"
-
-	if ! wait_for_stable_slot_up "$target_slot" 2; then
-		rollback_finalize "$target_slot"
-		return 1
-	fi
-	if ! wait_for_edge_jmap 15; then
+	if ! ramp_exclusive_weights "$target_slot" "$incumbent_slot"; then
 		rollback_finalize "$target_slot"
 		return 1
 	fi
