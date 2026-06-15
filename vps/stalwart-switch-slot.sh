@@ -164,44 +164,71 @@ rollback_finalize() {
 	esac
 }
 
+set_slot_role() {
+	target_slot="$1"
+	other_slot="$2"
+
+	for backend in $ALL_BACKENDS; do
+		run_haproxy_command "set server ${backend}/railway_${target_slot} state ready"
+		run_haproxy_command "set server ${backend}/railway_${other_slot} state ready"
+		run_haproxy_command "set weight ${backend}/railway_blue 100%"
+		run_haproxy_command "set weight ${backend}/railway_green 100%"
+	done
+}
+
+apply_weight_split() {
+	target_slot="$1"
+	target_weight="$2"
+	other_weight="$3"
+
+	case "$target_slot" in
+		blue) set_slot_weights "$target_weight" "$other_weight" ;;
+		green) set_slot_weights "$other_weight" "$target_weight" ;;
+	esac
+}
+
 finalize_active_slot() {
 	target_slot="$1"
 	other_slot=""
-	steps=4
 
 	case "$target_slot" in
 		blue) other_slot=green ;;
 		green) other_slot=blue ;;
 	esac
 
-	set_slot_state "$target_slot" ready
-	set_slot_state "$other_slot" ready
+	set_slot_role "$target_slot" "$other_slot"
 
-	step=0
-	while [ "$step" -le "$steps" ]; do
-		target_weight=$((step * 100 / steps))
-		other_weight=$((100 - target_weight))
-
-		case "$target_slot" in
-			blue) set_slot_weights "$target_weight" "$other_weight" ;;
-			green) set_slot_weights "$other_weight" "$target_weight" ;;
-		esac
-
-		if [ "$step" -gt 0 ]; then
-			if ! wait_for_stable_slot_up "$target_slot" 2; then
-				rollback_finalize "$target_slot" "$other_slot"
-				return 1
-			fi
-			if ! wait_for_edge_jmap; then
-				rollback_finalize "$target_slot" "$other_slot"
-				return 1
-			fi
+	for target_weight in 25 50 75; do
+		apply_weight_split "$target_slot" "$target_weight" 100
+		if ! wait_for_stable_slot_up "$target_slot" 3; then
+			rollback_finalize "$target_slot" "$other_slot"
+			return 1
 		fi
-
-		step=$((step + 1))
+		if ! wait_for_edge_jmap; then
+			rollback_finalize "$target_slot" "$other_slot"
+			return 1
+		fi
 	done
 
+	apply_weight_split "$target_slot" 100 100
+	set_slot_state "$other_slot" drain
+	if ! wait_for_stable_slot_up "$target_slot" 3; then
+		set_slot_state "$other_slot" ready
+		rollback_finalize "$target_slot" "$other_slot"
+		return 1
+	fi
+	if ! wait_for_edge_jmap; then
+		set_slot_state "$other_slot" ready
+		rollback_finalize "$target_slot" "$other_slot"
+		return 1
+	fi
+
 	set_slot_state "$other_slot" maint
+	case "$target_slot" in
+		blue) set_slot_weights 100 0 ;;
+		green) set_slot_weights 0 100 ;;
+	esac
+
 	printf '%s\n' "$target_slot" | tee "$ACTIVE_SLOT_FILE" >/dev/null
 }
 
