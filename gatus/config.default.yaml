@@ -27,58 +27,54 @@ ui:
     - name: "Open Solace"
       link: "https://solace.onl"
   custom-css: |
-    /* Solace palette — Gatus expects HSL triplets: hsl(var(--token)) */
+    /* Solace globals.css — oklch tokens converted to HSL triplets for Gatus (tailwind: hsl(var(--token))) */
     :root {
-      --background: 40 8% 98%;
-      --foreground: 30 6% 18%;
-      --card: 40 10% 99%;
-      --card-foreground: 30 6% 18%;
-      --popover: 40 10% 99%;
-      --popover-foreground: 30 6% 18%;
-      --primary: 35 12% 36%;
+      --background: 0 0% 97.6%;
+      --foreground: 0 0% 12.5%;
+      --card: 0 0% 98.8%;
+      --card-foreground: 0 0% 12.5%;
+      --popover: 0 0% 98.8%;
+      --popover-foreground: 0 0% 12.5%;
+      --primary: 16.7 21.9% 32.2%;
       --primary-foreground: 0 0% 100%;
-      --secondary: 74 18% 88%;
-      --secondary-foreground: 41 14% 28%;
-      --muted: 40 6% 95%;
-      --muted-foreground: 30 3% 42%;
-      --accent: 40 8% 93%;
-      --accent-foreground: 30 6% 18%;
-      --destructive: 17 63% 53%;
+      --secondary: 34.1 100% 85.5%;
+      --secondary-foreground: 16.3 50.4% 22.9%;
+      --muted: 180 0% 93.7%;
+      --muted-foreground: 0 0% 33.4%;
+      --accent: 0 0% 91%;
+      --accent-foreground: 0 0% 12.5%;
+      --destructive: 10.2 77.9% 53.9%;
       --destructive-foreground: 0 0% 100%;
-      --border: 35 6% 86%;
-      --input: 35 5% 88%;
-      --ring: 35 12% 36%;
+      --border: 180 0% 81.9%;
+      --input: 180 0% 84.7%;
+      --ring: 16.7 21.9% 32.2%;
       --radius: 0.5rem;
-      --solace-success: 150 32% 42%;
-      --solace-success-strong: 150 36% 34%;
-      --solace-danger: 17 63% 53%;
-      --solace-danger-strong: 17 68% 44%;
+      --success: 133.3 44.7% 64.6%;
+      --success-foreground: 0 0% 99.5%;
     }
 
     :root.dark {
-      --background: 0 0% 11%;
-      --foreground: 40 6% 94%;
-      --card: 0 0% 14%;
-      --card-foreground: 40 6% 94%;
-      --popover: 0 0% 14%;
-      --popover-foreground: 40 6% 94%;
-      --primary: 66 48% 78%;
-      --primary-foreground: 200 12% 12%;
-      --secondary: 63 12% 24%;
-      --secondary-foreground: 66 48% 78%;
-      --muted: 0 0% 18%;
-      --muted-foreground: 0 0% 68%;
-      --accent: 0 0% 20%;
-      --accent-foreground: 40 6% 94%;
-      --destructive: 17 63% 53%;
+      --background: 0 0% 6.7%;
+      --foreground: 150 0% 93.3%;
+      --card: 0 0% 9.8%;
+      --card-foreground: 150 0% 93.3%;
+      --popover: 0 0% 9.8%;
+      --popover-foreground: 150 0% 93.3%;
+      --primary: 29.5 100% 88%;
+      --primary-foreground: 183.2 54.4% 6.9%;
+      --secondary: 28.2 17.5% 19%;
+      --secondary-foreground: 29.5 100% 88%;
+      --muted: 60 0% 13.3%;
+      --muted-foreground: 0 0% 62%;
+      --accent: 240 0% 16.5%;
+      --accent-foreground: 150 0% 93.3%;
+      --destructive: 10.2 77.9% 53.9%;
       --destructive-foreground: 0 0% 100%;
-      --border: 50 4% 24%;
-      --input: 0 0% 28%;
-      --ring: 66 48% 78%;
-      --solace-success: 150 38% 52%;
-      --solace-success-strong: 150 42% 44%;
-      --solace-danger: 17 63% 58%;
-      --solace-danger-strong: 17 68% 48%;
+      --border: 45 9.7% 17.1%;
+      --input: 60 0% 28.2%;
+      --ring: 29.5 100% 88%;
+      --success: 137.3 44% 48.3%;
+      --success-foreground: 0 0% 99.5%;
     }
 
     #global {
@@ -93,6 +89,11 @@ ui:
       max-width: 80rem;
     }
 
+    header {
+      background-color: hsl(var(--card));
+      border-bottom: 1px solid hsl(var(--border));
+    }
+
     header h1 {
       color: hsl(var(--primary));
     }
@@ -101,39 +102,44 @@ ui:
       border-radius: 9999px;
     }
 
-    /* Status bars — Solace success / destructive */
+    /* Uptime bars — map Gatus greens/reds to Solace success/destructive */
     .text-green-500,
     .text-green-400,
     .text-green-700 {
-      color: hsl(var(--solace-success)) !important;
+      color: hsl(var(--success)) !important;
     }
 
     .bg-green-500 {
-      background-color: hsl(var(--solace-success)) !important;
+      background-color: hsl(var(--success)) !important;
     }
 
     .bg-green-700,
     .hover\:bg-green-700:hover {
-      background-color: hsl(var(--solace-success-strong)) !important;
+      background-color: hsl(var(--success)) !important;
     }
 
     .text-red-500,
     .text-red-700 {
-      color: hsl(var(--solace-danger)) !important;
+      color: hsl(var(--destructive)) !important;
     }
 
     .bg-red-500 {
-      background-color: hsl(var(--solace-danger)) !important;
+      background-color: hsl(var(--destructive)) !important;
     }
 
     .bg-red-700,
     .hover\:bg-red-700:hover {
-      background-color: hsl(var(--solace-danger-strong)) !important;
+      background-color: hsl(var(--destructive)) !important;
     }
 
     .dark .bg-gray-200,
     .dark .bg-gray-700 {
       background-color: hsl(var(--muted)) !important;
+    }
+
+    footer,
+    #social {
+      display: none !important;
     }
 
 .endpoint-ui: &endpoint-ui
