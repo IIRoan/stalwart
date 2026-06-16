@@ -1,6 +1,7 @@
 # Build Gatus with 90-day period uptime support (upstream PR #1651; CarmJos fork).
-FROM golang:1.24-alpine AS gatus-builder
+FROM golang:1.25-alpine AS gatus-builder
 
+ENV GOTOOLCHAIN=auto
 RUN apk add --no-cache ca-certificates git
 WORKDIR /src
 RUN git clone --depth 1 https://github.com/CarmJos/gatus.git .
