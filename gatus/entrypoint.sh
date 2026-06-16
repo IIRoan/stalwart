@@ -81,6 +81,8 @@ append_vps_ssh_endpoints() {
 		echo "    group: VPS"
 		echo "    url: ssh://${VPS_MONITOR_SSH_HOST}:${VPS_MONITOR_SSH_PORT}"
 		echo "    interval: 60s"
+		echo "    ui:"
+		echo "      period: 90d"
 		echo "    ssh:"
 		echo "      username: \"${VPS_MONITOR_SSH_USERNAME}\""
 		echo "      private-key: |"

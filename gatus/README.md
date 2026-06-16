@@ -1,6 +1,8 @@
 # Gatus status page (Solace)
 
-[Gatus](https://github.com/TwiN/gatus) monitors Solace and mail from Railway. Deploy as a
+[Gatus](https://github.com/TwiN/gatus) monitors Solace and mail from Railway. The image is
+built from [CarmJos/gatus](https://github.com/CarmJos/gatus) so each endpoint can show a
+**90-day** uptime bar (GitHub-style) instead of a short second/minute window. Deploy as a
 **separate Railway service** (root directory `gatus`, volume at `/data`).
 
 ## Railway variables
@@ -59,3 +61,6 @@ docker run --rm -p 8080:8080 \
 - **Status page auth:** `GATUS_ADMIN_USERNAME` / `GATUS_ADMIN_PASSWORD`
 - **VPS SSH monitor:** set `VPS_MONITOR_SSH_USERNAME` and `VPS_MONITOR_SSH_PRIVATE_KEY` (or `_B64`);
   install `vps/gatus-monitor.sh` on the VPS and restrict the SSH user with `authorized_keys command=`
+
+If `GATUS_CONFIG_YAML` is set on Railway it replaces the baked-in `config.default.yaml`.
+Remove it (or update it to match this file) after pulling UI/theme changes.

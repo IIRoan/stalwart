@@ -1,4 +1,14 @@
-FROM twinproduction/gatus:stable AS upstream
+# Build Gatus with 90-day period uptime support (upstream PR #1651; CarmJos fork).
+FROM golang:1.24-alpine AS gatus-builder
+
+RUN apk add --no-cache ca-certificates git
+WORKDIR /src
+RUN git clone --depth 1 https://github.com/CarmJos/gatus.git .
+COPY assets/solace-logo.png web/static/solace-logo.png
+COPY assets/favicon.ico web/static/favicon.ico
+COPY assets/favicon-16x16.png web/static/favicon-16x16.png
+COPY assets/favicon-32x32.png web/static/favicon-32x32.png
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /gatus .
 
 FROM alpine:3.20
 
@@ -6,7 +16,7 @@ RUN apk add --no-cache ca-certificates apache2-utils tzdata wget \
     && mkdir -p /etc/gatus /data \
     && rm -rf /var/cache/apk/*
 
-COPY --from=upstream /gatus /usr/local/bin/gatus
+COPY --from=gatus-builder /gatus /usr/local/bin/gatus
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY config.default.yaml /etc/gatus/config.default.yaml
 

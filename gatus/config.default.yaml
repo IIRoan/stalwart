@@ -1,6 +1,7 @@
 storage:
   type: sqlite
   path: /data/gatus.db
+  maximum-number-of-results: 100
 
 web:
   address: 0.0.0.0
@@ -10,10 +11,129 @@ metrics: true
 
 ui:
   title: "Solace Status"
-  header: "Solace Service Health"
+  header: "Solace"
   description: "Uptime for Solace (solace.onl) and mail (mail.solace.onl)."
+  dashboard-heading: "Service Health"
+  dashboard-subheading: "Three-month uptime for Solace and mail infrastructure."
+  logo: /solace-logo.png
   link: "https://solace.onl"
+  dark-mode: false
   default-sort-by: group
+  favicon:
+    default: /favicon.ico
+    size16x16: /favicon-16x16.png
+    size32x32: /favicon-32x32.png
+  buttons:
+    - name: "Open Solace"
+      link: "https://solace.onl"
+  custom-css: |
+    :root {
+      --background: 0 0% 98.2%;
+      --foreground: 0 0% 24.4%;
+      --card: 0 0% 99.1%;
+      --card-foreground: 0 0% 24.4%;
+      --primary: 35 9% 34%;
+      --primary-foreground: 0 0% 100%;
+      --secondary: 74 13% 88%;
+      --secondary-foreground: 41 12% 28%;
+      --muted: 0 0% 95.2%;
+      --muted-foreground: 0 0% 45%;
+      --accent: 0 0% 93.1%;
+      --accent-foreground: 0 0% 24.4%;
+      --destructive: 17 63% 53%;
+      --border: 0 0% 86%;
+      --input: 0 0% 88.2%;
+      --ring: 35 9% 34%;
+      --radius: 0.5rem;
+    }
+
+    #global {
+      background-color: oklch(0.9821 0 0);
+      color: oklch(0.2435 0 0);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .dashboard-container {
+      max-width: 72rem;
+    }
+
+    header {
+      border-bottom: 1px solid oklch(0.86 0 0);
+      background-color: oklch(0.9911 0 0);
+    }
+
+    header img {
+      height: 2.25rem;
+      width: 2.25rem;
+      object-fit: contain;
+      border-radius: 9999px;
+    }
+
+    header h1,
+    header a {
+      color: oklch(0.4341 0.0392 42);
+      font-weight: 600;
+    }
+
+    .endpoint,
+    .endpoint-group {
+      border: 1px solid oklch(0.86 0 0);
+      background-color: oklch(0.9911 0 0);
+      border-radius: 0.5rem;
+      box-shadow: 0 1px 3px 0 hsl(0 0% 0% / 0.05);
+    }
+
+    .endpoint-header,
+    .endpoint-group-header {
+      background-color: oklch(0.9821 0 0);
+      border-bottom: 1px solid oklch(0.86 0 0);
+      color: oklch(0.2435 0 0);
+    }
+
+    .endpoint-content,
+    .endpoint-group-content {
+      background-color: oklch(0.9911 0 0);
+      color: oklch(0.2435 0 0);
+    }
+
+    .announcement-container {
+      border: 1px solid oklch(0.86 0 0);
+      border-radius: 0.5rem;
+    }
+
+    .announcement-header {
+      background-color: oklch(0.9521 0 0);
+      color: oklch(0.2435 0 0);
+    }
+
+    .announcement-content {
+      background-color: oklch(0.9911 0 0);
+      color: oklch(0.45 0 0);
+    }
+
+    .text-green-500,
+    .text-green-400,
+    .text-green-700 {
+      color: oklch(0.55 0.12 150) !important;
+    }
+
+    .bg-green-500,
+    .bg-green-700 {
+      background-color: oklch(0.55 0.12 150) !important;
+    }
+
+    .text-red-500,
+    .text-red-700 {
+      color: oklch(0.6271 0.1936 33.339) !important;
+    }
+
+    .bg-red-500,
+    .bg-red-700 {
+      background-color: oklch(0.6271 0.1936 33.339) !important;
+    }
+
+.endpoint-ui: &endpoint-ui
+  period: 90d
 
 # Shared Prometheus scrape target (auth injected at boot).
 .prometheus: &prometheus
@@ -23,6 +143,7 @@ ui:
   client:
     timeout: 15s
   ui:
+    <<: *endpoint-ui
     hide-url: true
 
 endpoints:
@@ -30,6 +151,8 @@ endpoints:
     group: Application
     url: https://solace.onl/
     interval: 60s
+    ui:
+      <<: *endpoint-ui
     conditions:
       - "[STATUS] == 200"
       - "[RESPONSE_TIME] < 3000"
@@ -39,6 +162,8 @@ endpoints:
     group: Application
     url: https://api.solace.onl/api/health
     interval: 60s
+    ui:
+      <<: *endpoint-ui
     conditions:
       - "[STATUS] == 200"
       - "[BODY].status == ok"
@@ -49,6 +174,8 @@ endpoints:
     group: Mail
     url: https://mail.solace.onl/jmap/session
     interval: 30s
+    ui:
+      <<: *endpoint-ui
     client:
       timeout: 10s
     conditions:
@@ -60,6 +187,8 @@ endpoints:
     group: Mail
     url: https://mail.solace.onl/slot-manager/status
     interval: 60s
+    ui:
+      <<: *endpoint-ui
     headers:
       Authorization: "Bearer ${SLOT_MANAGER_TOKEN}"
     conditions:
