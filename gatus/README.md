@@ -64,6 +64,3 @@ docker run --rm -p 8080:8080 \
 - **Status page auth:** `GATUS_ADMIN_USERNAME` / `GATUS_ADMIN_PASSWORD`
 - **VPS SSH monitor:** set `VPS_MONITOR_SSH_USERNAME` and `VPS_MONITOR_SSH_PRIVATE_KEY` (or `_B64`);
   install `vps/gatus-monitor.sh` on the VPS and restrict the SSH user with `authorized_keys command=`
-
-If `GATUS_CONFIG_YAML` is set on Railway it replaces the baked-in `config.default.yaml`.
-Remove it (or update it to match this file) after pulling UI/theme changes.

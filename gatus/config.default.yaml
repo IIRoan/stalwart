@@ -27,114 +27,138 @@ ui:
     - name: "Open Solace"
       link: "https://solace.onl"
   custom-css: |
-    /* Solace globals.css — oklch tokens converted to HSL triplets for Gatus (tailwind: hsl(var(--token))) */
-    :root {
-      --background: 0 0% 97.6%;
-      --foreground: 0 0% 12.5%;
-      --card: 0 0% 98.8%;
-      --card-foreground: 0 0% 12.5%;
-      --popover: 0 0% 98.8%;
-      --popover-foreground: 0 0% 12.5%;
-      --primary: 16.7 21.9% 32.2%;
-      --primary-foreground: 0 0% 100%;
-      --secondary: 34.1 100% 85.5%;
-      --secondary-foreground: 16.3 50.4% 22.9%;
-      --muted: 180 0% 93.7%;
-      --muted-foreground: 0 0% 33.4%;
-      --accent: 0 0% 91%;
-      --accent-foreground: 0 0% 12.5%;
-      --destructive: 10.2 77.9% 53.9%;
-      --destructive-foreground: 0 0% 100%;
-      --border: 180 0% 81.9%;
-      --input: 180 0% 84.7%;
-      --ring: 16.7 21.9% 32.2%;
-      --radius: 0.5rem;
-      --success: 133.3 44.7% 64.6%;
-      --success-foreground: 0 0% 99.5%;
-    }
-
-    :root.dark {
-      --background: 0 0% 6.7%;
-      --foreground: 150 0% 93.3%;
-      --card: 0 0% 9.8%;
-      --card-foreground: 150 0% 93.3%;
-      --popover: 0 0% 9.8%;
-      --popover-foreground: 150 0% 93.3%;
-      --primary: 29.5 100% 88%;
-      --primary-foreground: 183.2 54.4% 6.9%;
-      --secondary: 28.2 17.5% 19%;
-      --secondary-foreground: 29.5 100% 88%;
-      --muted: 60 0% 13.3%;
-      --muted-foreground: 0 0% 62%;
-      --accent: 240 0% 16.5%;
-      --accent-foreground: 150 0% 93.3%;
-      --destructive: 10.2 77.9% 53.9%;
-      --destructive-foreground: 0 0% 100%;
-      --border: 45 9.7% 17.1%;
-      --input: 60 0% 28.2%;
-      --ring: 29.5 100% 88%;
-      --success: 137.3 44% 48.3%;
-      --success-foreground: 0 0% 99.5%;
-    }
-
+    /* Solace theme — Gatus documented selectors (gatus.io/docs/appearance) */
     #global {
+      background-color: #faf6f4 !important;
+      color: #202020 !important;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
-    header .container {
-      max-width: 80rem;
+    .dashboard-container {
+      background-color: #faf6f4 !important;
     }
 
-    .dashboard-container .container {
-      max-width: 80rem;
+    .endpoint,
+    .endpoint-group {
+      background-color: #fcfcfc !important;
+      border: 1px solid #dacac4 !important;
+    }
+
+    .endpoint-header,
+    .endpoint-group-header {
+      background-color: #f5f1ef !important;
+      color: #644a40 !important;
+    }
+
+    .endpoint-content,
+    .endpoint-group-content {
+      background-color: #fcfcfc !important;
+      color: #202020 !important;
+    }
+
+    .announcement-container {
+      background-color: #fcfcfc !important;
+      border: 1px solid #dacac4 !important;
+    }
+
+    .announcement-header {
+      background-color: #f5f1ef !important;
+      color: #644a40 !important;
+    }
+
+    .announcement-content {
+      background-color: #fcfcfc !important;
+      color: #202020 !important;
     }
 
     header {
-      background-color: hsl(var(--card));
-      border-bottom: 1px solid hsl(var(--border));
+      background-color: #fcfcfc !important;
+      border-bottom: 1px solid #dacac4 !important;
     }
 
-    header h1 {
-      color: hsl(var(--primary));
+    header h1,
+    .dashboard-container h1 {
+      color: #644a40 !important;
     }
 
     header img {
       border-radius: 9999px;
     }
 
-    /* Uptime bars — map Gatus greens/reds to Solace success/destructive */
+    header .container,
+    .dashboard-container .container {
+      max-width: 80rem;
+    }
+
+    #global .text-muted-foreground {
+      color: #555555 !important;
+    }
+
+    #global .text-primary {
+      color: #644a40 !important;
+    }
+
+    #global .bg-primary {
+      background-color: #644a40 !important;
+      color: #ffffff !important;
+    }
+
     .text-green-500,
     .text-green-400,
+    .text-green-600,
     .text-green-700 {
-      color: hsl(var(--success)) !important;
+      color: #7ccd8e !important;
     }
 
-    .bg-green-500 {
-      background-color: hsl(var(--success)) !important;
-    }
-
+    .bg-green-500,
+    .bg-green-600,
     .bg-green-700,
     .hover\:bg-green-700:hover {
-      background-color: hsl(var(--success)) !important;
+      background-color: #7ccd8e !important;
     }
 
     .text-red-500,
+    .text-red-600,
     .text-red-700 {
-      color: hsl(var(--destructive)) !important;
+      color: #e54d2e !important;
     }
 
-    .bg-red-500 {
-      background-color: hsl(var(--destructive)) !important;
-    }
-
+    .bg-red-500,
+    .bg-red-600,
     .bg-red-700,
     .hover\:bg-red-700:hover {
-      background-color: hsl(var(--destructive)) !important;
+      background-color: #e54d2e !important;
     }
 
-    .dark .bg-gray-200,
-    .dark .bg-gray-700 {
-      background-color: hsl(var(--muted)) !important;
+    .dark #global,
+    .dark .dashboard-container {
+      background-color: #111111 !important;
+      color: #eeeeee !important;
+    }
+
+    .dark .endpoint,
+    .dark .endpoint-group,
+    .dark .endpoint-content,
+    .dark .endpoint-group-content,
+    .dark .announcement-container,
+    .dark .announcement-content {
+      background-color: #191919 !important;
+      border-color: #2e2a24 !important;
+      color: #eeeeee !important;
+    }
+
+    .dark .endpoint-header,
+    .dark .endpoint-group-header,
+    .dark .announcement-header,
+    .dark header {
+      background-color: #222018 !important;
+      color: #f5d9a8 !important;
+      border-color: #2e2a24 !important;
+    }
+
+    .dark header h1,
+    .dark .dashboard-container h1 {
+      color: #f5d9a8 !important;
     }
 
     footer,
