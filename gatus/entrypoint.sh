@@ -83,6 +83,8 @@ append_vps_ssh_endpoints() {
 		echo "    interval: 60s"
 		echo "    ui:"
 		echo "      period: 90d"
+		echo "    alerts:"
+		echo "      - type: discord"
 		echo "    ssh:"
 		echo "      username: \"${VPS_MONITOR_SSH_USERNAME}\""
 		echo "      private-key: |"
@@ -101,6 +103,11 @@ append_vps_ssh_endpoints() {
 write_base_config
 inject_basic_auth
 inject_prometheus_auth
+
+if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+	echo "DISCORD_WEBHOOK_URL is not set; Discord downtime alerts are disabled." >&2
+fi
+
 append_vps_ssh_endpoints
 
 export GATUS_CONFIG_PATH="${GATUS_CONFIG_PATH:-/data/config.yaml}"

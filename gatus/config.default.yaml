@@ -9,6 +9,16 @@ web:
 
 metrics: true
 
+alerting:
+  discord:
+    webhook-url: "${DISCORD_WEBHOOK_URL}"
+    title: "Solace Status"
+    default-alert:
+      send-on-resolved: true
+      failure-threshold: 2
+      success-threshold: 2
+      description: "Service monitor failed"
+
 ui:
   title: "Solace Status"
   header: "Solace"
@@ -27,138 +37,9 @@ ui:
     - name: "Open Solace"
       link: "https://solace.onl"
   custom-css: |
-    /* Solace theme — Gatus documented selectors (gatus.io/docs/appearance) */
-    #global {
-      background-color: #faf6f4 !important;
-      color: #202020 !important;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    }
-
-    .dashboard-container {
-      background-color: #faf6f4 !important;
-    }
-
-    .endpoint,
-    .endpoint-group {
-      background-color: #fcfcfc !important;
-      border: 1px solid #dacac4 !important;
-    }
-
-    .endpoint-header,
-    .endpoint-group-header {
-      background-color: #f5f1ef !important;
-      color: #644a40 !important;
-    }
-
-    .endpoint-content,
-    .endpoint-group-content {
-      background-color: #fcfcfc !important;
-      color: #202020 !important;
-    }
-
-    .announcement-container {
-      background-color: #fcfcfc !important;
-      border: 1px solid #dacac4 !important;
-    }
-
-    .announcement-header {
-      background-color: #f5f1ef !important;
-      color: #644a40 !important;
-    }
-
-    .announcement-content {
-      background-color: #fcfcfc !important;
-      color: #202020 !important;
-    }
-
-    header {
-      background-color: #fcfcfc !important;
-      border-bottom: 1px solid #dacac4 !important;
-    }
-
-    header h1,
-    .dashboard-container h1 {
-      color: #644a40 !important;
-    }
-
-    header img {
-      border-radius: 9999px;
-    }
-
     header .container,
     .dashboard-container .container {
       max-width: 80rem;
-    }
-
-    #global .text-muted-foreground {
-      color: #555555 !important;
-    }
-
-    #global .text-primary {
-      color: #644a40 !important;
-    }
-
-    #global .bg-primary {
-      background-color: #644a40 !important;
-      color: #ffffff !important;
-    }
-
-    .text-green-500,
-    .text-green-400,
-    .text-green-600,
-    .text-green-700 {
-      color: #7ccd8e !important;
-    }
-
-    .bg-green-500,
-    .bg-green-600,
-    .bg-green-700,
-    .hover\:bg-green-700:hover {
-      background-color: #7ccd8e !important;
-    }
-
-    .text-red-500,
-    .text-red-600,
-    .text-red-700 {
-      color: #e54d2e !important;
-    }
-
-    .bg-red-500,
-    .bg-red-600,
-    .bg-red-700,
-    .hover\:bg-red-700:hover {
-      background-color: #e54d2e !important;
-    }
-
-    .dark #global,
-    .dark .dashboard-container {
-      background-color: #111111 !important;
-      color: #eeeeee !important;
-    }
-
-    .dark .endpoint,
-    .dark .endpoint-group,
-    .dark .endpoint-content,
-    .dark .endpoint-group-content,
-    .dark .announcement-container,
-    .dark .announcement-content {
-      background-color: #191919 !important;
-      border-color: #2e2a24 !important;
-      color: #eeeeee !important;
-    }
-
-    .dark .endpoint-header,
-    .dark .endpoint-group-header,
-    .dark .announcement-header,
-    .dark header {
-      background-color: #222018 !important;
-      color: #f5d9a8 !important;
-      border-color: #2e2a24 !important;
-    }
-
-    .dark header h1,
-    .dark .dashboard-container h1 {
-      color: #f5d9a8 !important;
     }
 
     footer,
@@ -169,9 +50,14 @@ ui:
 .endpoint-ui: &endpoint-ui
   period: 90d
 
+.discord-alerts: &discord-alerts
+  alerts:
+    - type: discord
+
 # Shared Prometheus scrape target (auth injected at boot).
 # Scraped via slot-manager so HAProxy never round-robins to the warming slot during cutover.
 .prometheus: &prometheus
+  <<: *discord-alerts
   url: https://mail.solace.onl/slot-manager/metrics/prometheus
   headers:
     Authorization: "Basic __PROMETHEUS_BASIC_AUTH__"
@@ -183,6 +69,7 @@ ui:
 
 endpoints:
   - name: website
+    <<: *discord-alerts
     group: Application
     url: https://solace.onl/
     interval: 60s
@@ -194,6 +81,7 @@ endpoints:
       - "[CERTIFICATE_EXPIRATION] > 336h"
 
   - name: api-health
+    <<: *discord-alerts
     group: Application
     url: https://api.solace.onl/api/health
     interval: 60s
@@ -206,6 +94,7 @@ endpoints:
       - "[CERTIFICATE_EXPIRATION] > 336h"
 
   - name: jmap-session
+    <<: *discord-alerts
     group: Mail
     url: https://mail.solace.onl/jmap/session
     interval: 30s
@@ -219,6 +108,7 @@ endpoints:
       - "[CERTIFICATE_EXPIRATION] > 336h"
 
   - name: slot-blue-green
+    <<: *discord-alerts
     group: Mail
     url: https://mail.solace.onl/slot-manager/status
     interval: 60s

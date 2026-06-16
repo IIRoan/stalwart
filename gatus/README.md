@@ -13,6 +13,13 @@ built from [CarmJos/gatus](https://github.com/CarmJos/gatus) so each endpoint ca
 | `prometheus_user` | yes | Stalwart Prometheus basic auth (WebUI) |
 | `prometheus_password` | yes | Stalwart Prometheus basic auth |
 | `SLOT_MANAGER_TOKEN` | yes | Bearer token for `/slot-manager/status` |
+| `DISCORD_WEBHOOK_URL` | yes | Discord webhook for downtime/recovery alerts |
+
+## Alerting
+
+Failed monitors post to Discord after **2 consecutive failures**. A recovery message is sent after **2 consecutive successes** (`send-on-resolved`).
+
+Set `DISCORD_WEBHOOK_URL` on Railway (Server Settings → Integrations → Webhooks → copy URL). Do not commit the webhook URL to git.
 
 ## Monitors
 
@@ -56,6 +63,7 @@ docker run --rm -p 8080:8080 \
   -e prometheus_user=prometheus \
   -e prometheus_password=secret \
   -e SLOT_MANAGER_TOKEN=your-token \
+  -e DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... \
   solace-gatus
 ```
 
