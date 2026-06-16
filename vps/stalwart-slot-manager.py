@@ -14,6 +14,7 @@ SLOT_PORTS = {
     "blue": (10025, 18080),
     "green": (11025, 19080),
 }
+HTTP_HEALTHCHECK_HOST = os.environ.get("HTTP_HEALTHCHECK_HOST", "mail.solace.onl")
 
 
 def read_active_slot():
@@ -39,6 +40,25 @@ def read_status():
     }
 
 
+def fetch_active_prometheus(authorization):
+    """Scrape Prometheus from the active slot's local HTTP port (bypasses HAProxy round-robin)."""
+    slot = read_active_slot()
+    http_port = SLOT_PORTS[slot][1]
+    command = [
+        "curl",
+        "-fsS",
+        "--max-time",
+        "15",
+        "--haproxy-protocol",
+        "-H",
+        f"Host: {HTTP_HEALTHCHECK_HOST}",
+    ]
+    if authorization:
+        command.extend(["-H", f"Authorization: {authorization}"])
+    command.append(f"http://127.0.0.1:{http_port}/metrics/prometheus")
+    return subprocess.run(command, capture_output=True, text=True)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, status, payload):
         body = json.dumps(payload).encode("utf-8")
@@ -53,7 +73,24 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return self.headers.get("Authorization") == f"Bearer {AUTH_TOKEN}"
 
+    def _proxy_prometheus(self):
+        result = fetch_active_prometheus(self.headers.get("Authorization", ""))
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout or "prometheus scrape failed").strip()
+            self._send(502, {"error": "prometheus_proxy_failed", "details": details})
+            return
+
+        body = result.stdout.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
+        if self.path == "/metrics/prometheus":
+            self._proxy_prometheus()
+            return
         if self.path == "/active":
             self._send(200, {"active": read_active_slot()})
             return

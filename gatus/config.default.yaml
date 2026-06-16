@@ -27,117 +27,122 @@ ui:
     - name: "Open Solace"
       link: "https://solace.onl"
   custom-css: |
+    /* Solace palette — Gatus expects HSL triplets: hsl(var(--token)) */
     :root {
-      --background: 0 0% 98.2%;
-      --foreground: 0 0% 24.4%;
-      --card: 0 0% 99.1%;
-      --card-foreground: 0 0% 24.4%;
-      --primary: 35 9% 34%;
+      --background: 40 8% 98%;
+      --foreground: 30 6% 18%;
+      --card: 40 10% 99%;
+      --card-foreground: 30 6% 18%;
+      --popover: 40 10% 99%;
+      --popover-foreground: 30 6% 18%;
+      --primary: 35 12% 36%;
       --primary-foreground: 0 0% 100%;
-      --secondary: 74 13% 88%;
-      --secondary-foreground: 41 12% 28%;
-      --muted: 0 0% 95.2%;
-      --muted-foreground: 0 0% 45%;
-      --accent: 0 0% 93.1%;
-      --accent-foreground: 0 0% 24.4%;
+      --secondary: 74 18% 88%;
+      --secondary-foreground: 41 14% 28%;
+      --muted: 40 6% 95%;
+      --muted-foreground: 30 3% 42%;
+      --accent: 40 8% 93%;
+      --accent-foreground: 30 6% 18%;
       --destructive: 17 63% 53%;
-      --border: 0 0% 86%;
-      --input: 0 0% 88.2%;
-      --ring: 35 9% 34%;
+      --destructive-foreground: 0 0% 100%;
+      --border: 35 6% 86%;
+      --input: 35 5% 88%;
+      --ring: 35 12% 36%;
       --radius: 0.5rem;
+      --solace-success: 150 32% 42%;
+      --solace-success-strong: 150 36% 34%;
+      --solace-danger: 17 63% 53%;
+      --solace-danger-strong: 17 68% 44%;
+    }
+
+    :root.dark {
+      --background: 0 0% 11%;
+      --foreground: 40 6% 94%;
+      --card: 0 0% 14%;
+      --card-foreground: 40 6% 94%;
+      --popover: 0 0% 14%;
+      --popover-foreground: 40 6% 94%;
+      --primary: 66 48% 78%;
+      --primary-foreground: 200 12% 12%;
+      --secondary: 63 12% 24%;
+      --secondary-foreground: 66 48% 78%;
+      --muted: 0 0% 18%;
+      --muted-foreground: 0 0% 68%;
+      --accent: 0 0% 20%;
+      --accent-foreground: 40 6% 94%;
+      --destructive: 17 63% 53%;
+      --destructive-foreground: 0 0% 100%;
+      --border: 50 4% 24%;
+      --input: 0 0% 28%;
+      --ring: 66 48% 78%;
+      --solace-success: 150 38% 52%;
+      --solace-success-strong: 150 42% 44%;
+      --solace-danger: 17 63% 58%;
+      --solace-danger-strong: 17 68% 48%;
     }
 
     #global {
-      background-color: oklch(0.9821 0 0);
-      color: oklch(0.2435 0 0);
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
-    .dashboard-container {
-      max-width: 72rem;
+    header .container {
+      max-width: 80rem;
     }
 
-    header {
-      border-bottom: 1px solid oklch(0.86 0 0);
-      background-color: oklch(0.9911 0 0);
+    .dashboard-container .container {
+      max-width: 80rem;
+    }
+
+    header h1 {
+      color: hsl(var(--primary));
     }
 
     header img {
-      height: 2.25rem;
-      width: 2.25rem;
-      object-fit: contain;
       border-radius: 9999px;
     }
 
-    header h1,
-    header a {
-      color: oklch(0.4341 0.0392 42);
-      font-weight: 600;
-    }
-
-    .endpoint,
-    .endpoint-group {
-      border: 1px solid oklch(0.86 0 0);
-      background-color: oklch(0.9911 0 0);
-      border-radius: 0.5rem;
-      box-shadow: 0 1px 3px 0 hsl(0 0% 0% / 0.05);
-    }
-
-    .endpoint-header,
-    .endpoint-group-header {
-      background-color: oklch(0.9821 0 0);
-      border-bottom: 1px solid oklch(0.86 0 0);
-      color: oklch(0.2435 0 0);
-    }
-
-    .endpoint-content,
-    .endpoint-group-content {
-      background-color: oklch(0.9911 0 0);
-      color: oklch(0.2435 0 0);
-    }
-
-    .announcement-container {
-      border: 1px solid oklch(0.86 0 0);
-      border-radius: 0.5rem;
-    }
-
-    .announcement-header {
-      background-color: oklch(0.9521 0 0);
-      color: oklch(0.2435 0 0);
-    }
-
-    .announcement-content {
-      background-color: oklch(0.9911 0 0);
-      color: oklch(0.45 0 0);
-    }
-
+    /* Status bars — Solace success / destructive */
     .text-green-500,
     .text-green-400,
     .text-green-700 {
-      color: oklch(0.55 0.12 150) !important;
+      color: hsl(var(--solace-success)) !important;
     }
 
-    .bg-green-500,
-    .bg-green-700 {
-      background-color: oklch(0.55 0.12 150) !important;
+    .bg-green-500 {
+      background-color: hsl(var(--solace-success)) !important;
+    }
+
+    .bg-green-700,
+    .hover\:bg-green-700:hover {
+      background-color: hsl(var(--solace-success-strong)) !important;
     }
 
     .text-red-500,
     .text-red-700 {
-      color: oklch(0.6271 0.1936 33.339) !important;
+      color: hsl(var(--solace-danger)) !important;
     }
 
-    .bg-red-500,
-    .bg-red-700 {
-      background-color: oklch(0.6271 0.1936 33.339) !important;
+    .bg-red-500 {
+      background-color: hsl(var(--solace-danger)) !important;
+    }
+
+    .bg-red-700,
+    .hover\:bg-red-700:hover {
+      background-color: hsl(var(--solace-danger-strong)) !important;
+    }
+
+    .dark .bg-gray-200,
+    .dark .bg-gray-700 {
+      background-color: hsl(var(--muted)) !important;
     }
 
 .endpoint-ui: &endpoint-ui
   period: 90d
 
 # Shared Prometheus scrape target (auth injected at boot).
+# Scraped via slot-manager so HAProxy never round-robins to the warming slot during cutover.
 .prometheus: &prometheus
-  url: https://mail.solace.onl/metrics/prometheus
+  url: https://mail.solace.onl/slot-manager/metrics/prometheus
   headers:
     Authorization: "Basic __PROMETHEUS_BASIC_AUTH__"
   client:
@@ -209,9 +214,9 @@ endpoints:
     interval: 60s
     conditions:
       - "[STATUS] == 200"
+      - "[BODY] == pat(*# HELP smtp_active_connections*)"
       - "[BODY] == pat(*smtp_active_connections*)"
-      - "[BODY] == pat(*smtp_request_time_count*)"
-      - "[BODY] == pat(*smtp_iprev_pass*)"
+      - "[BODY] == pat(*# TYPE smtp_request_time*)"
 
   - name: stalwart-smtp-antispam
     <<: *prometheus
@@ -219,9 +224,9 @@ endpoints:
     interval: 60s
     conditions:
       - "[STATUS] == 200"
-      - "[BODY] == pat(*spf_pass*)"
-      - "[BODY] == pat(*spf_temp_error*)"
-      - "[BODY] == pat(*spf_perm_error*)"
+      - "[BODY] == pat(*# HELP smtp_active_connections*)"
+      - "[BODY] == pat(*# HELP delivery_active_connections*)"
+      - "[BODY] == pat(*delivery_active_connections*)"
 
   - name: stalwart-delivery
     <<: *prometheus
@@ -238,8 +243,8 @@ endpoints:
     interval: 60s
     conditions:
       - "[STATUS] == 200"
+      - "[BODY] == pat(*# HELP imap_active_connections*)"
       - "[BODY] == pat(*imap_active_connections*)"
-      - "[BODY] == pat(*imap_connection_start*)"
 
   - name: stalwart-jmap-http
     <<: *prometheus
@@ -256,8 +261,9 @@ endpoints:
     interval: 120s
     conditions:
       - "[STATUS] == 200"
-      - "[BODY] == pat(*store_data_iterate*)"
+      - "[BODY] == pat(*# HELP user_count*)"
       - "[BODY] == pat(*user_count*)"
+      - "[BODY] == pat(*# HELP domain_count*)"
       - "[BODY] == pat(*domain_count*)"
 
   - name: stalwart-error-counters

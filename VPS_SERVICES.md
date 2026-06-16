@@ -60,7 +60,7 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 
 ### stalwart-slot-manager
 
-- **Role:** HTTP API for active slot; triggers HAProxy runtime reconfiguration.
+- **Role:** HTTP API for active slot; triggers HAProxy runtime reconfiguration. Also proxies `GET /metrics/prometheus` to the active slot's local HTTP port so Gatus scrapes never hit the warming slot during cutover.
 - **Port:** 127.0.0.1:9081 (public via HAProxy `/slot-manager/`)
 - **Repo:** `vps/stalwart-slot-manager.py` → `/usr/local/bin/stalwart-slot-manager.py`
 - **Invokes:** `/usr/local/bin/stalwart-switch-slot` (no `.sh` suffix — see [Blue/green cutover](#bluegreen-cutover))

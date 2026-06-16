@@ -25,18 +25,21 @@ built from [CarmJos/gatus](https://github.com/CarmJos/gatus) so each endpoint ca
 
 ### Stalwart Metrics group
 
-All monitors scrape `mail.solace.onl/metrics/prometheus` (URL hidden on the status page).
+All monitors scrape `mail.solace.onl/slot-manager/metrics/prometheus` (URL hidden on the status page).
+The slot manager proxies to the **active** Railway slot directly, so deploy cutover does not
+round-robin scrapes to a warming container. Conditions use gauges and `# HELP`/`# TYPE` lines
+instead of event counters (e.g. `smtp_iprev_pass`) that disappear until traffic hits the new slot.
 Enable Prometheus in the Stalwart WebUI and set `prometheus_user` / `prometheus_password` on Gatus.
 
 | Monitor | What it checks |
 |---------|----------------|
 | `stalwart-exporter` | Prometheus endpoint alive |
-| `stalwart-smtp-receive` | Inbound SMTP connections, request timing, IPREV |
-| `stalwart-smtp-antispam` | SPF pass/temp/perm counters |
+| `stalwart-smtp-receive` | Inbound SMTP gauge + request-time histogram registered |
+| `stalwart-smtp-antispam` | SMTP + delivery gauge metrics registered |
 | `stalwart-delivery` | Outbound delivery connection gauge |
-| `stalwart-imap` | IMAP connections and session starts |
+| `stalwart-imap` | IMAP active connection gauge |
 | `stalwart-jmap-http` | HTTP/JMAP connection and request metrics |
-| `stalwart-store` | Store iteration, user/domain counts |
+| `stalwart-store` | User/domain count gauges |
 | `stalwart-error-counters` | Store errors, SMTP concurrency limit, calendar expansion errors |
 
 These verify that metric families are being exported. Counter **values** are cumulative —
