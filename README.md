@@ -167,6 +167,29 @@ See [gatus/README.md](gatus/README.md).
 | `STALWART_HTTP_PORT` | no | Stalwart HTTP/JMAP port (default `8080`) |
 | `RELAY_ROUTE_ID` | no | Stalwart MtaRoute id (default `ivnbzc1aaba9`) |
 | `RELAY_BIND_ADDR` | no | Override container private IP for relay route |
+| `PG_POOL_MAX_CONNECTIONS` | no | Stalwart → Postgres pool size (default `4`) |
+
+Memory tuning for small Railway deployments is in `scripts/stalwart-memory-tune.sh`
+(cache caps, `maxConnections`, DataStore pool, and 30-day metrics retention).
+Settings persist in Postgres; re-run after a fresh install with
+`STALWART_ADMIN_TOKEN` set.
+
+## PostgreSQL on Railway
+
+Stalwart should use the **private** Postgres hostname (`*.railway.internal`) via
+`PGHOST` / `DATABASE_URL`, not the public proxy URL. The entrypoint disables TLS
+for `*.railway.internal` and enables it for `*.rlwy.net` proxies.
+
+To keep total project RAM down:
+
+1. Use the **smallest Postgres plan** that remains stable for your mail volume.
+2. Keep Stalwart's pool at **4** connections (`PG_POOL_MAX_CONNECTIONS` / DataStore
+   singleton — applied by `scripts/stalwart-memory-tune.sh`).
+3. Trim metrics history to **30 days** (`holdMetricsFor` on the DataRetention
+   singleton — also in the tune script).
+
+Railway Postgres RAM is billed separately from the Stalwart container; lowering
+Stalwart caches does not shrink the database process itself.
 
 Relay route targets and Stalwart management API calls both use the container's
 **private IP** on ports 2525 / 8080. Loopback (`127.0.0.1`) is not reachable

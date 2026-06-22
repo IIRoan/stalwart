@@ -1,8 +1,8 @@
-FROM stalwartlabs/stalwart:v0.16
+FROM stalwartlabs/stalwart:v0.16.9
 
 ARG FRPC_VERSION=0.69.1
 ARG STALWART_CLI_VERSION=1.0.8
-ARG BUILD_TIMESTAMP=2026-06-13-12b
+ARG BUILD_TIMESTAMP=2026-06-22-stalwart-0.16.9
 
 USER root
 
