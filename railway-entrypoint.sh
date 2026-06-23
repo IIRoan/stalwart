@@ -16,7 +16,7 @@ STALWART_HTTP_PORT="${STALWART_HTTP_PORT:-8080}"
 # Railway healthchecks probe PORT (set PORT=8090 in Railway variables).
 HEALTH_PORT="${PORT:-8090}"
 HEALTH_STATE_PATH="${HEALTH_STATE_PATH:-/tmp/railway-health.json}"
-PG_POOL_MAX_CONNECTIONS="${PG_POOL_MAX_CONNECTIONS:-4}"
+PG_POOL_MAX_CONNECTIONS="${PG_POOL_MAX_CONNECTIONS:-3}"
 
 log() {
 	printf '%s [%s] %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" "$2" >&2

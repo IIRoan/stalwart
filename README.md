@@ -167,12 +167,19 @@ See [gatus/README.md](gatus/README.md).
 | `STALWART_HTTP_PORT` | no | Stalwart HTTP/JMAP port (default `8080`) |
 | `RELAY_ROUTE_ID` | no | Stalwart MtaRoute id (default `ivnbzc1aaba9`) |
 | `RELAY_BIND_ADDR` | no | Override container private IP for relay route |
-| `PG_POOL_MAX_CONNECTIONS` | no | Stalwart → Postgres pool size (default `4`) |
+| `PG_POOL_MAX_CONNECTIONS` | no | Stalwart → Postgres pool size (default `3`) |
+| `AWS_SECRET_ACCESS_KEY` | yes | S3 secret (read at runtime via `AWS_SECRET_ACCESS_KEY` env var) |
+| `AWS_ACCESS_KEY_ID` | no | Also in BlobStore config in Postgres; keep in sync if you rotate keys |
+| `AWS_S3_KEY_PREFIX` | no | Optional key prefix inside the bucket |
+
+BlobStore (S3) is configured in Postgres and was set via `stalwart-cli`. Re-run
+`scripts/stalwart-s3-blobstore.sh` only after a fresh Stalwart install. Keep
+`AWS_SECRET_ACCESS_KEY` on the Railway service so Stalwart can authenticate to S3.
 
 Memory tuning for small Railway deployments is in `scripts/stalwart-memory-tune.sh`
-(cache caps, `maxConnections`, DataStore pool, and 30-day metrics retention).
-Settings persist in Postgres; re-run after a fresh install with
-`STALWART_ADMIN_TOKEN` set.
+(cache caps, `maxConnections`, DataStore pool, metrics/tracing retention, and
+disabling Postgres-backed metrics history). Settings persist in Postgres;
+re-run after a fresh install with `STALWART_ADMIN_TOKEN` set.
 
 ## PostgreSQL on Railway
 
@@ -183,10 +190,11 @@ for `*.railway.internal` and enables it for `*.rlwy.net` proxies.
 To keep total project RAM down:
 
 1. Use the **smallest Postgres plan** that remains stable for your mail volume.
-2. Keep Stalwart's pool at **4** connections (`PG_POOL_MAX_CONNECTIONS` / DataStore
+2. Keep Stalwart's pool at **3** connections (`PG_POOL_MAX_CONNECTIONS` / DataStore
    singleton — applied by `scripts/stalwart-memory-tune.sh`).
-3. Trim metrics history to **30 days** (`holdMetricsFor` on the DataRetention
-   singleton — also in the tune script).
+3. Disable Postgres-backed **metrics history** (`MetricsStore` → Disabled) and
+   **delivery tracing** (`TracingStore` → Disabled). Gatus still scrapes live
+   Prometheus metrics.
 
 Railway Postgres RAM is billed separately from the Stalwart container; lowering
 Stalwart caches does not shrink the database process itself.
