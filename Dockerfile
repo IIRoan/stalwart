@@ -23,7 +23,8 @@ RUN apt-get update \
     && chown -R stalwart:stalwart /var/log/stalwart /etc/stalwart
 
 COPY railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
-RUN chmod 755 /usr/local/bin/railway-entrypoint.sh \
+RUN sed -i 's/\r$//' /usr/local/bin/railway-entrypoint.sh \
+    && chmod 755 /usr/local/bin/railway-entrypoint.sh \
     && chown stalwart:stalwart /usr/local/bin/railway-entrypoint.sh
 
 USER stalwart

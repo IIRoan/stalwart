@@ -1,0 +1,3 @@
+# Git attributes
+*.sh text eol=lf
+railway-entrypoint.sh text eol=lf

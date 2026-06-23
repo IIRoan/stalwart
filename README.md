@@ -172,9 +172,39 @@ See [gatus/README.md](gatus/README.md).
 | `AWS_ACCESS_KEY_ID` | no | Also in BlobStore config in Postgres; keep in sync if you rotate keys |
 | `AWS_S3_KEY_PREFIX` | no | Optional key prefix inside the bucket |
 
-BlobStore (S3) is configured in Postgres and was set via `stalwart-cli`. Re-run
-`scripts/stalwart-s3-blobstore.sh` only after a fresh Stalwart install. Keep
-`AWS_SECRET_ACCESS_KEY` on the Railway service so Stalwart can authenticate to S3.
+### Blob storage (S3)
+
+BlobStore is configured in Postgres (via `stalwart-cli`). New and migrated
+message bodies are stored in the S3 bucket (`AWS_S3_BUCKET_NAME`). Keep
+`AWS_SECRET_ACCESS_KEY` on the **stalwart-mail** service so Stalwart can
+authenticate at runtime.
+
+**Production status (2026-06-23):** Historical blobs (~122 MB) were migrated
+from Postgres to `stalwart-bucket-3maghmny` on Railway S3 (`t3.storageapi.dev`).
+BlobStore is **S3**; new mail is stored in the bucket. An earlier migration
+attempt exported only from S3 (~557 KB) because BlobStore was already S3 during
+export — the entrypoint now sets BlobStore to **Default** before export and
+**S3** before import.
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/stalwart-s3-blobstore.sh` | Point BlobStore at S3 (fresh install) |
+| `scripts/stalwart-blobstore-default.sh` | Roll back BlobStore to Postgres (emergency) |
+| `scripts/s3-bucket-stats.py` | List object count/size (`railway run -s stalwart-mail -- python scripts/s3-bucket-stats.py`) |
+
+### Migrating Postgres blobs to S3 (one-time)
+
+Use `BLOB_MIGRATE_MODE=true` on **stalwart-mail** — `railway-entrypoint.sh`
+handles the full flow (BlobStore → Default, export from Postgres, BlobStore →
+S3, import). **Do not** run export while BlobStore already points at S3; that
+only copies objects already in the bucket.
+
+1. Set `BLOB_MIGRATE_MODE=true` and redeploy (brief outage).
+2. Watch logs for `Blob migration finished` and export size ≈ Postgres blob data.
+3. Remove `BLOB_MIGRATE_MODE` and redeploy to resume normal service.
+
+`scripts/stalwart-migrate-blobs-to-s3.sh` mirrors the export/import steps for
+manual use inside the Stalwart image (server must be stopped).
 
 Memory tuning for small Railway deployments is in `scripts/stalwart-memory-tune.sh`
 (cache caps, `maxConnections`, DataStore pool, metrics/tracing retention, and
