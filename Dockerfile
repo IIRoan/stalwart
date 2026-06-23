@@ -7,7 +7,7 @@ ARG BUILD_TIMESTAMP=2026-06-22-stalwart-0.16.9
 USER root
 
 RUN apt-get update \
-    && apt-get install -yq --no-install-recommends curl iproute2 postgresql-client python3-minimal xz-utils \
+    && apt-get install -yq --no-install-recommends curl iproute2 postgresql-client python3-minimal util-linux xz-utils \
     && curl -fsSL "https://github.com/fatedier/frp/releases/download/v${FRPC_VERSION}/frp_${FRPC_VERSION}_linux_amd64.tar.gz" \
         | tar xz -C /tmp \
     && mv "/tmp/frp_${FRPC_VERSION}_linux_amd64/frpc" /usr/local/bin/frpc \
@@ -19,15 +19,15 @@ RUN apt-get update \
     && rm -rf /tmp/stalwart-cli-x86_64-unknown-linux-gnu \
     && chmod 755 /usr/local/bin/stalwart-cli \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /var/log/stalwart /etc/stalwart \
-    && chown -R stalwart:stalwart /var/log/stalwart /etc/stalwart
+    && mkdir -p /var/log/stalwart /etc/stalwart /var/stalwart/blobs \
+    && chown -R stalwart:stalwart /var/log/stalwart /etc/stalwart /var/stalwart/blobs
 
 COPY railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/railway-entrypoint.sh \
     && chmod 755 /usr/local/bin/railway-entrypoint.sh \
     && chown stalwart:stalwart /usr/local/bin/railway-entrypoint.sh
 
-USER stalwart
+USER root
 
 EXPOSE 25 465 587 993 443 8080 8090
 

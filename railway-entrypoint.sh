@@ -16,7 +16,7 @@ STALWART_HTTP_PORT="${STALWART_HTTP_PORT:-8080}"
 # Railway healthchecks probe PORT (set PORT=8090 in Railway variables).
 HEALTH_PORT="${PORT:-8090}"
 HEALTH_STATE_PATH="${HEALTH_STATE_PATH:-/tmp/railway-health.json}"
-PG_POOL_MAX_CONNECTIONS="${PG_POOL_MAX_CONNECTIONS:-3}"
+PG_POOL_MAX_CONNECTIONS="${PG_POOL_MAX_CONNECTIONS:-6}"
 
 log() {
 	printf '%s [%s] %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" "$2" >&2
@@ -435,9 +435,22 @@ PY
 	die "Health listener failed to respond on :${HEALTH_PORT}."
 }
 
+prepare_blob_volume() {
+	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
+	if [ -d "$BLOB_FS_PATH" ] || mkdir -p "$BLOB_FS_PATH" 2>/dev/null; then
+		chown -R stalwart:stalwart "$BLOB_FS_PATH" \
+			|| die "Could not chown ${BLOB_FS_PATH} for stalwart user (volume permissions)."
+	fi
+}
+
+run_as_stalwart() {
+	runuser -u stalwart -- "$@"
+}
+
 start_stalwart() {
 	log info "Starting Stalwart (db=${PGHOST}:${PGPORT}/${PGDATABASE})."
-	/usr/local/bin/stalwart --config /etc/stalwart/config.json 2>&1 &
+	prepare_blob_volume
+	run_as_stalwart /usr/local/bin/stalwart --config /etc/stalwart/config.json 2>&1 &
 	STALWART_PID=$!
 	log info "Stalwart pid=${STALWART_PID}."
 	wait_for_stalwart_ports
@@ -592,8 +605,9 @@ stop_migrate_stalwart() {
 start_migrate_stalwart() {
 	CONFIG=/etc/stalwart/config.json
 	stop_migrate_stalwart
+	prepare_blob_volume
 	log info "Starting temporary Stalwart for BlobStore settings changes."
-	/usr/local/bin/stalwart --config "$CONFIG" 2>&1 &
+	run_as_stalwart /usr/local/bin/stalwart --config "$CONFIG" 2>&1 &
 	MIGRATE_STALWART_PID=$!
 	wait_for_stalwart_ports
 }
@@ -614,61 +628,28 @@ blobstore_set_default() {
 	log info "BlobStore set to Default (export will read Postgres blobs)."
 }
 
-blobstore_set_s3() {
+blobstore_set_filesystem() {
+	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
 	[ -n "${STALWART_ADMIN_TOKEN:-}" ] || die "STALWART_ADMIN_TOKEN required for blob migration."
-	[ -n "${AWS_S3_BUCKET_NAME:-}" ] || die "AWS_S3_BUCKET_NAME is required."
-	[ -n "${AWS_ENDPOINT_URL:-}" ] || die "AWS_ENDPOINT_URL is required."
-	[ -n "${AWS_DEFAULT_REGION:-}" ] || die "AWS_DEFAULT_REGION is required."
-	[ -n "${AWS_ACCESS_KEY_ID:-}" ] || die "AWS_ACCESS_KEY_ID is required."
-
-	blob_json="$(AWS_S3_BUCKET_NAME="$AWS_S3_BUCKET_NAME" \
-		AWS_ENDPOINT_URL="$AWS_ENDPOINT_URL" \
-		AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
-		AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
-		AWS_S3_KEY_PREFIX="${AWS_S3_KEY_PREFIX:-}" \
-		python3 - <<'PY'
-import json
-import os
-
-payload = {
-    "@type": "S3",
-    "bucket": os.environ["AWS_S3_BUCKET_NAME"],
-    "region": {
-        "@type": "Custom",
-        "customEndpoint": os.environ["AWS_ENDPOINT_URL"],
-        "customRegion": os.environ["AWS_DEFAULT_REGION"],
-    },
-    "accessKey": os.environ["AWS_ACCESS_KEY_ID"],
-    "secretKey": {
-        "@type": "EnvironmentVariable",
-        "variableName": "AWS_SECRET_ACCESS_KEY",
-    },
-    "securityToken": {"@type": "None"},
-    "sessionToken": {"@type": "None"},
-}
-prefix = os.environ.get("AWS_S3_KEY_PREFIX", "").strip()
-if prefix:
-    payload["keyPrefix"] = prefix
-print(json.dumps(payload))
-PY
-)"
-
+	prepare_blob_volume
 	stalwart_url="$(migrate_cli_url)"
 	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-		update BlobStore --json "$blob_json" \
-		|| die "Could not set BlobStore to S3."
+		update BlobStore --json "{\"@type\": \"FileSystem\", \"path\": \"$BLOB_FS_PATH\", \"depth\": 2}" \
+		|| die "Could not set BlobStore to FileSystem."
 	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
 		create Action/ReloadSettings >/dev/null 2>&1 || true
 	sleep 2
-	log info "BlobStore set to S3 (import target: s3://${AWS_S3_BUCKET_NAME})."
+	log info "BlobStore set to FileSystem (${BLOB_FS_PATH})."
 }
 
-migrate_blobs_to_s3() {
-	EXPORT_DIR="${BLOB_EXPORT_DIR:-/tmp/stalwart-blob-export}"
+migrate_blobs_to_fs() {
+	EXPORT_DIR="${BLOB_EXPORT_DIR:-/tmp/stalwart-blob-export-fs}"
+	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
 	CONFIG=/etc/stalwart/config.json
 
-	# Export reads the configured BlobStore backend. Old blobs live in Postgres,
-	# so BlobStore must be Default before export (not S3, which only had new mail).
+	prepare_blob_volume
+
+	# Export reads the configured BlobStore backend. Blobs must be exported from Postgres.
 	start_migrate_stalwart
 	blobstore_set_default
 	stop_migrate_stalwart
@@ -677,7 +658,7 @@ migrate_blobs_to_s3() {
 	mkdir -p "$EXPORT_DIR"
 
 	log info "Exporting blob family from Postgres (EXPORT_TYPES=blob)..."
-	if ! EXPORT_TYPES=blob /usr/local/bin/stalwart --config "$CONFIG" --export "$EXPORT_DIR"; then
+	if ! run_as_stalwart env EXPORT_TYPES=blob /usr/local/bin/stalwart --config "$CONFIG" --export "$EXPORT_DIR"; then
 		die "Blob export failed."
 	fi
 
@@ -686,18 +667,18 @@ migrate_blobs_to_s3() {
 		die "Blob export directory is empty; nothing to migrate."
 	fi
 
-	log info "Exported blob dump (${export_size}). Switching BlobStore to S3 before import..."
+	log info "Exported blob dump (${export_size}). Switching BlobStore to FileSystem before import..."
 	start_migrate_stalwart
-	blobstore_set_s3
+	blobstore_set_filesystem
 	stop_migrate_stalwart
 
-	log info "Importing blobs into S3..."
-	if ! /usr/local/bin/stalwart --config "$CONFIG" --import "$EXPORT_DIR"; then
+	log info "Importing blobs into volume at ${BLOB_FS_PATH}..."
+	if ! run_as_stalwart /usr/local/bin/stalwart --config "$CONFIG" --import "$EXPORT_DIR"; then
 		die "Blob import failed."
 	fi
 
 	rm -rf "$EXPORT_DIR"
-	log info "Blob migration finished (${export_size} imported)."
+	log info "Blob migration finished (${export_size} imported to ${BLOB_FS_PATH})."
 }
 
 wait_for_frpc_proxies() {
@@ -780,12 +761,11 @@ start_frpc() {
 
 [ -n "$PGHOST" ] && [ -n "$PGUSER" ] && [ -n "$PGPASSWORD" ] || die "Missing PostgreSQL credentials."
 
-if [ "${BLOB_MIGRATE_MODE:-}" = "true" ]; then
-	[ -n "${AWS_SECRET_ACCESS_KEY:-}" ] || die "AWS_SECRET_ACCESS_KEY is required to import blobs into S3."
+if [ "${BLOB_MIGRATE_TO_FS:-}" = "true" ]; then
 	write_store_config
 	start_migrate_health_server
-	migrate_blobs_to_s3 || die "Blob migration failed."
-	log info "Blob migration complete. Unset BLOB_MIGRATE_MODE and redeploy to resume normal service."
+	migrate_blobs_to_fs || die "Blob migration to filesystem failed."
+	log info "Blob migration complete. Unset BLOB_MIGRATE_TO_FS and redeploy to resume normal service."
 	while kill -0 "$MIGRATE_HEALTH_PID" 2>/dev/null; do
 		sleep 60
 	done
@@ -795,6 +775,7 @@ fi
 [ -n "${FRPS_ADDR:-}" ] && [ -n "${FRPC_TOKEN:-}" ] || die "FRPS_ADDR and FRPC_TOKEN are required."
 
 write_store_config
+prepare_blob_volume
 resolve_slot
 start_health_server
 start_stalwart

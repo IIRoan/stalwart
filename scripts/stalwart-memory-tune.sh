@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Apply low-memory Stalwart settings via stalwart-cli.
-# Requires: STALWART_ADMIN_TOKEN, optional STALWART_URL (default mail.solace.onl)
+# Tune Stalwart RAM vs webmail performance via stalwart-cli / apply-stalwart-tune.py.
 set -euo pipefail
 
 STALWART_URL="${STALWART_URL:-https://mail.solace.onl}"
 STALWART_ADMIN_TOKEN="${STALWART_ADMIN_TOKEN:?STALWART_ADMIN_TOKEN is required}"
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 CLI_DIR="${TMPDIR:-/tmp}/stalwart-cli-bin"
 mkdir -p "$CLI_DIR"
@@ -21,21 +22,25 @@ mode="${1:-apply}"
 
 case "$mode" in
 	status)
-		echo "=== Cache ==="
 		"${CLI[@]}" get Cache
 		echo
-		echo "=== SystemSettings ==="
+		"${CLI[@]}" get Jmap
+		echo
 		"${CLI[@]}" get SystemSettings
 		echo
-		for obj in InMemoryStore SearchStore DataStore BlobStore MetricsStore TracingStore DataRetention; do
+		"${CLI[@]}" get DataStore
+		echo
+		for obj in BlobStore MetricsStore TracingStore DataRetention; do
 			echo "=== ${obj} ==="
 			"${CLI[@]}" get "$obj" 2>&1 || true
 			echo
 		done
 		;;
 	apply)
-		echo "Applying low-memory Cache settings..."
-		# ~45 MB total configured cache ceiling (down from ~75 MB).
+		exec python3 "$SCRIPT_DIR/apply-stalwart-tune.py"
+		;;
+	apply-minimal)
+		echo "Applying minimal-RAM cache (5 MB messages — slow mailbox loads)..."
 		"${CLI[@]}" update Cache --json '{
 			"messages": 5242880,
 			"accounts": 3145728,
@@ -63,39 +68,13 @@ case "$mode" in
 			"dnsRbl": 1048576,
 			"negativeTtl": 1800000
 		}'
-
-		echo "Applying connection limit (RAM-related; leaves CPU thread pool at default)..."
-		"${CLI[@]}" update SystemSettings \
-			--field maxConnections=128 \
-			--field threadPoolSize=null
-
-		echo "Applying Postgres pool limits on DataStore singleton..."
-		"${CLI[@]}" update DataStore \
-			--field poolMaxConnections=3 \
-			--field poolRecyclingMethod=clean
-
-		echo "Stopping Postgres-backed metrics history (Prometheus scrape unchanged)..."
+		"${CLI[@]}" update DataStore --field poolMaxConnections=3 --field poolRecyclingMethod=clean
 		"${CLI[@]}" update MetricsStore --json '{"@type": "Disabled"}'
-
-		echo "Disabling delivery tracing history in Postgres..."
 		"${CLI[@]}" update TracingStore --json '{"@type": "Disabled"}'
-
-		echo "Reducing JMAP/MTA history retained in Postgres..."
-		"${CLI[@]}" update DataRetention \
-			--field holdMtaReportsFor=604800000 \
-			--field holdMetricsFor=2592000000 \
-			--field maxChangesHistory=2000
-
-		echo "Reloading settings..."
 		"${CLI[@]}" create Action/ReloadSettings
-
-		echo "Done. Current settings:"
-		"${CLI[@]}" get Cache
-		echo
-		"${CLI[@]}" get SystemSettings
 		;;
 	*)
-		echo "Usage: $0 [status|apply]" >&2
+		echo "Usage: $0 [status|apply|apply-minimal]" >&2
 		exit 1
 		;;
 esac

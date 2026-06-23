@@ -167,49 +167,41 @@ See [gatus/README.md](gatus/README.md).
 | `STALWART_HTTP_PORT` | no | Stalwart HTTP/JMAP port (default `8080`) |
 | `RELAY_ROUTE_ID` | no | Stalwart MtaRoute id (default `ivnbzc1aaba9`) |
 | `RELAY_BIND_ADDR` | no | Override container private IP for relay route |
-| `PG_POOL_MAX_CONNECTIONS` | no | Stalwart → Postgres pool size (default `3`) |
-| `AWS_SECRET_ACCESS_KEY` | yes | S3 secret (read at runtime via `AWS_SECRET_ACCESS_KEY` env var) |
-| `AWS_ACCESS_KEY_ID` | no | Also in BlobStore config in Postgres; keep in sync if you rotate keys |
-| `AWS_S3_KEY_PREFIX` | no | Optional key prefix inside the bucket |
+| `PG_POOL_MAX_CONNECTIONS` | no | Stalwart → Postgres pool size (default `6`) |
 
-### Blob storage (S3)
+### Blob storage (Railway volume)
 
-BlobStore is configured in Postgres (via `stalwart-cli`). New and migrated
-message bodies are stored in the S3 bucket (`AWS_S3_BUCKET_NAME`). Keep
-`AWS_SECRET_ACCESS_KEY` on the **stalwart-mail** service so Stalwart can
-authenticate at runtime.
+Message bodies are stored on a **Railway volume** mounted at
+`/var/stalwart/blobs` (`BlobStore` type `FileSystem`, depth 2). Postgres holds
+metadata only. The entrypoint ensures the volume is owned by the `stalwart` user
+before the server starts.
 
-**Production status (2026-06-23):** Historical blobs (~122 MB) were migrated
-from Postgres to `stalwart-bucket-3maghmny` on Railway S3 (`t3.storageapi.dev`).
-BlobStore is **S3**; new mail is stored in the bucket. An earlier migration
-attempt exported only from S3 (~557 KB) because BlobStore was already S3 during
-export — the entrypoint now sets BlobStore to **Default** before export and
-**S3** before import.
+**Production status:** ~128 MB of blobs on volume `stalwart-mail-volume-21uH`.
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/stalwart-s3-blobstore.sh` | Point BlobStore at S3 (fresh install) |
-| `scripts/stalwart-blobstore-default.sh` | Roll back BlobStore to Postgres (emergency) |
-| `scripts/s3-bucket-stats.py` | List object count/size (`railway run -s stalwart-mail -- python scripts/s3-bucket-stats.py`) |
+| `scripts/stalwart-blobstore-default.sh` | Emergency rollback of BlobStore to Postgres |
+| `scripts/stalwart-migrate-blobs-to-fs.sh` | Manual Postgres → volume migration (server stopped) |
 
-### Migrating Postgres blobs to S3 (one-time)
+### Migrating Postgres blobs to the volume (one-time)
 
-Use `BLOB_MIGRATE_MODE=true` on **stalwart-mail** — `railway-entrypoint.sh`
-handles the full flow (BlobStore → Default, export from Postgres, BlobStore →
-S3, import). **Do not** run export while BlobStore already points at S3; that
-only copies objects already in the bucket.
+Set `BLOB_MIGRATE_TO_FS=true` on **stalwart-mail** — `railway-entrypoint.sh`
+runs export from Postgres (BlobStore → Default), import to the volume (BlobStore
+→ FileSystem), then keeps the migrate health listener up until you redeploy
+without the flag.
 
-1. Set `BLOB_MIGRATE_MODE=true` and redeploy (brief outage).
-2. Watch logs for `Blob migration finished` and export size ≈ Postgres blob data.
-3. Remove `BLOB_MIGRATE_MODE` and redeploy to resume normal service.
+1. Attach a volume at `/var/stalwart/blobs` on the stalwart-mail service.
+2. Set `BLOB_MIGRATE_TO_FS=true` and redeploy (brief outage).
+3. Watch logs for `Blob migration finished` and export size ≈ Postgres blob data.
+4. Remove `BLOB_MIGRATE_TO_FS` and redeploy to resume normal service.
 
-`scripts/stalwart-migrate-blobs-to-s3.sh` mirrors the export/import steps for
-manual use inside the Stalwart image (server must be stopped).
-
-Memory tuning for small Railway deployments is in `scripts/stalwart-memory-tune.sh`
-(cache caps, `maxConnections`, DataStore pool, metrics/tracing retention, and
-disabling Postgres-backed metrics history). Settings persist in Postgres;
+Memory tuning for Railway is in `scripts/stalwart-memory-tune.sh` (`apply` runs
+`scripts/apply-stalwart-tune.py` — 50 MB message cache, trimmed auxiliary
+caches, disabled Postgres telemetry history). Settings persist in Postgres;
 re-run after a fresh install with `STALWART_ADMIN_TOKEN` set.
+
+Diagnostic scripts: `jmap-mailbox-profile.py`, `trace-webui-mailbox-load.py`,
+`stalwart-jmap-tracer.py`, `fix-webui-jmap-queue.py`.
 
 ## PostgreSQL on Railway
 
@@ -220,8 +212,8 @@ for `*.railway.internal` and enables it for `*.rlwy.net` proxies.
 To keep total project RAM down:
 
 1. Use the **smallest Postgres plan** that remains stable for your mail volume.
-2. Keep Stalwart's pool at **3** connections (`PG_POOL_MAX_CONNECTIONS` / DataStore
-   singleton — applied by `scripts/stalwart-memory-tune.sh`).
+2. Keep Stalwart's pool at **6** connections (`PG_POOL_MAX_CONNECTIONS` / DataStore
+   singleton — applied by `scripts/apply-stalwart-tune.py`).
 3. Disable Postgres-backed **metrics history** (`MetricsStore` → Disabled) and
    **delivery tracing** (`TracingStore` → Disabled). Gatus still scrapes live
    Prometheus metrics.
