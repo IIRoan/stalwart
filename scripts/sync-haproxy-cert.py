@@ -256,19 +256,24 @@ def deploy_pem(pem: str, host: str, user: str, port: int, key_path: Path) -> Non
             [*scp_base, str(local_pem), f"{user}@{host}:{remote_tmp}"],
             check=True,
         )
+        # Prefer the dedicated installer when present (gh-cert-sync user + sudoers).
         remote_script = f"""
 set -euo pipefail
 PEM_SRC={remote_tmp}
-PEM_DST=/etc/haproxy/certs/mail.solace.onl.pem
-openssl x509 -in "$PEM_SRC" -noout -dates -subject >/dev/null
-openssl pkey -in "$PEM_SRC" -noout -check >/dev/null
-install -d -m 0750 /etc/haproxy/certs
-install -m 0640 "$PEM_SRC" "$PEM_DST"
-chown root:haproxy "$PEM_DST" 2>/dev/null || chown root:root "$PEM_DST"
-haproxy -c -f /etc/haproxy/haproxy.cfg
-systemctl reload haproxy
-openssl x509 -in "$PEM_DST" -noout -dates -subject -ext subjectAltName
-rm -f "$PEM_SRC"
+if [[ -x /usr/local/bin/install-haproxy-cert.sh ]]; then
+  sudo -n /usr/local/bin/install-haproxy-cert.sh "$PEM_SRC"
+else
+  sudo -n openssl x509 -in "$PEM_SRC" -noout -dates -subject >/dev/null
+  sudo -n openssl pkey -in "$PEM_SRC" -noout -check >/dev/null
+  sudo -n install -d -m 0750 /etc/haproxy/certs
+  sudo -n install -m 0640 "$PEM_SRC" /etc/haproxy/certs/mail.solace.onl.pem
+  sudo -n chown root:haproxy /etc/haproxy/certs/mail.solace.onl.pem 2>/dev/null \\
+    || sudo -n chown root:root /etc/haproxy/certs/mail.solace.onl.pem
+  sudo -n haproxy -c -f /etc/haproxy/haproxy.cfg
+  sudo -n systemctl reload haproxy
+  sudo -n openssl x509 -in /etc/haproxy/certs/mail.solace.onl.pem -noout -dates -subject -ext subjectAltName
+  sudo -n rm -f "$PEM_SRC"
+fi
 """
         subprocess.run([*ssh_base, "bash", "-s"], input=remote_script, text=True, check=True)
     finally:

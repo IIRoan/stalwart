@@ -38,8 +38,20 @@ Optional Environment secrets:
 | Secret | Default |
 |--------|---------|
 | `VPS_SSH_HOST` | `mail.solace.onl` |
-| `VPS_SSH_USER` | `root` |
+| `VPS_SSH_USER` | `gh-cert-sync` (after running `vps/setup-gh-cert-sync-user.sh`) |
 | `VPS_SSH_PORT` | `22` |
+
+### Bootstrap the VPS agent user
+
+On the mail VPS as root (creates `gh-cert-sync`, keypair, sudoers, installer):
+
+```bash
+sudo ./vps/setup-gh-cert-sync-user.sh
+```
+
+The script prints the private key — paste it into Environment secret `VPS_SSH_PRIVATE_KEY`,
+set `VPS_SSH_USER=gh-cert-sync`, then delete `/root/gh-cert-sync-github-haproxy-cert.pem`.
+
 
 **Why Environment secrets?** Repository secrets are available to any workflow on any branch that references them. Environment secrets for `mail-vps` are only injected when the job uses `environment: mail-vps`, and that Environment is restricted to `main`. The workflow also refuses forks, non-`main` refs, and has no `pull_request` trigger.
 
