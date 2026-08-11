@@ -85,8 +85,9 @@ jobs:
           : "${STALWART_DATABASE_URL:?set Environment secret STALWART_DATABASE_URL on mail-vps}"
           : "${VPS_SSH_PRIVATE_KEY:?set Environment secret VPS_SSH_PRIVATE_KEY on mail-vps}"
           export VPS_SSH_HOST="${VPS_SSH_HOST:-mail.solace.onl}"
-          export VPS_SSH_USER="${VPS_SSH_USER:-root}"
+          export VPS_SSH_USER="${VPS_SSH_USER:-gh-cert-sync}"
           export VPS_SSH_PORT="${VPS_SSH_PORT:-22}"
+          echo "Deploy target: ${VPS_SSH_USER}@${VPS_SSH_HOST}:${VPS_SSH_PORT}"
 
           FORCE_FLAG=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] \

@@ -61,7 +61,7 @@ set `VPS_SSH_USER=gh-cert-sync`, then delete `/root/gh-cert-sync-github-haproxy-
 export STALWART_DATABASE_URL='postgresql://…'
 export VPS_SSH_PRIVATE_KEY="$(cat ~/.ssh/id_ed25519)"
 export VPS_SSH_HOST=193.180.211.139
-export VPS_SSH_USER=root
+export VPS_SSH_USER=gh-cert-sync
 
 pip install 'psycopg[binary]'
 python3 scripts/sync-haproxy-cert.py --force

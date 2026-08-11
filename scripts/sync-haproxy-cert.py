@@ -13,7 +13,7 @@ Typical flow (GitHub Actions):
 Env:
   STALWART_DATABASE_URL   Postgres URL for the Stalwart store (required to export)
   VPS_SSH_HOST            default: mail.solace.onl
-  VPS_SSH_USER            default: root
+  VPS_SSH_USER            default: gh-cert-sync
   VPS_SSH_PORT            default: 22
   VPS_SSH_PRIVATE_KEY     PEM private key contents (required to deploy)
   CERT_HOST               default: mail.solace.onl
@@ -213,9 +213,16 @@ def export_pem_from_stalwart_db(database_url: str, hostname: str) -> str:
 
 
 def write_ssh_key(private_key: str) -> Path:
+    # Normalize paste artifacts from GitHub secrets / Windows editors.
+    key = private_key.replace("\r\n", "\n").replace("\r", "\n").strip() + "\n"
+    if "BEGIN OPENSSH PRIVATE KEY" not in key and "BEGIN RSA PRIVATE KEY" not in key:
+        raise SystemExit(
+            "VPS_SSH_PRIVATE_KEY does not look like an OpenSSH private key "
+            "(missing BEGIN … PRIVATE KEY header)"
+        )
     handle = tempfile.NamedTemporaryFile("w", delete=False)
     path = Path(handle.name)
-    handle.write(private_key.strip() + "\n")
+    handle.write(key)
     handle.close()
     path.chmod(0o600)
     return path
@@ -223,28 +230,30 @@ def write_ssh_key(private_key: str) -> Path:
 
 def deploy_pem(pem: str, host: str, user: str, port: int, key_path: Path) -> None:
     remote_tmp = "/tmp/mail.solace.onl.pem"
-    ssh_base = [
-        "ssh",
+    ssh_opts = [
         "-i",
         str(key_path),
-        "-p",
-        str(port),
         "-o",
         "BatchMode=yes",
         "-o",
+        "IdentitiesOnly=yes",
+        "-o",
         "StrictHostKeyChecking=accept-new",
+        "-o",
+        "PreferredAuthentications=publickey",
+    ]
+    ssh_base = [
+        "ssh",
+        *ssh_opts,
+        "-p",
+        str(port),
         f"{user}@{host}",
     ]
     scp_base = [
         "scp",
-        "-i",
-        str(key_path),
+        *ssh_opts,
         "-P",
         str(port),
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "StrictHostKeyChecking=accept-new",
     ]
 
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".pem") as handle:
@@ -252,10 +261,22 @@ def deploy_pem(pem: str, host: str, user: str, port: int, key_path: Path) -> Non
         handle.write(pem)
 
     try:
-        subprocess.run(
-            [*scp_base, str(local_pem), f"{user}@{host}:{remote_tmp}"],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [*scp_base, str(local_pem), f"{user}@{host}:{remote_tmp}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            raise SystemExit(
+                f"scp to {user}@{host} failed (exit {exc.returncode}).\n"
+                f"{detail}\n"
+                "Check VPS_SSH_USER=gh-cert-sync and that VPS_SSH_PRIVATE_KEY "
+                "matches that user's authorized_keys."
+            ) from exc
+
         # Prefer the dedicated installer when present (gh-cert-sync user + sudoers).
         remote_script = f"""
 set -euo pipefail
@@ -275,7 +296,27 @@ else
   sudo -n rm -f "$PEM_SRC"
 fi
 """
-        subprocess.run([*ssh_base, "bash", "-s"], input=remote_script, text=True, check=True)
+        try:
+            completed = subprocess.run(
+                [*ssh_base, "bash", "-s"],
+                input=remote_script,
+                text=True,
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            raise SystemExit(
+                f"remote install via {user}@{host} failed (exit {exc.returncode}).\n"
+                f"{detail}"
+            ) from exc
+        out = (completed.stdout or "").strip()
+        err = (completed.stderr or "").strip()
+        if out:
+            print(out)
+        if err:
+            print(err)
+        print("Remote install succeeded.")
     finally:
         local_pem.unlink(missing_ok=True)
 
@@ -329,9 +370,9 @@ def main() -> int:
     if not ssh_key:
         raise SystemExit("VPS_SSH_PRIVATE_KEY is required to deploy")
 
-    vps_host = os.environ.get("VPS_SSH_HOST", host)
-    vps_user = os.environ.get("VPS_SSH_USER", "root")
-    vps_port = int(os.environ.get("VPS_SSH_PORT", "22"))
+    vps_host = os.environ.get("VPS_SSH_HOST", "").strip() or host
+    vps_user = os.environ.get("VPS_SSH_USER", "").strip() or "gh-cert-sync"
+    vps_port = int(os.environ.get("VPS_SSH_PORT", "").strip() or "22")
     key_path = write_ssh_key(ssh_key)
     try:
         print(f"Deploying to {vps_user}@{vps_host}:{vps_port} …")
