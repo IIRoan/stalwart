@@ -1,0 +1,98 @@
+name: Sync HAProxy TLS cert
+
+# Stalwart ACME renews certs in Postgres. HAProxy on the VPS terminates :443
+# with a separate PEM. This workflow copies the newest Stalwart cert to the VPS
+# when the live HTTPS cert is within 14 days of expiry (or when forced).
+#
+# Security:
+# - No pull_request / pull_request_target triggers (fork PRs cannot run this).
+# - Jobs only run for IIRoan/stalwart on refs/heads/main.
+# - Secrets live in the "mail-vps" Environment (not repo-wide); lock that
+#   Environment to the main branch in GitHub Settings → Environments.
+
+on:
+  schedule:
+    # Weekly — script no-ops unless expiry is within RENEW_BEFORE_DAYS.
+    # Scheduled workflows always use the default branch workflow file.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force sync even if the live cert has more than 14 days left
+        type: boolean
+        default: true
+
+# Least privilege — this job must never write to the repo or modify Actions.
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-haproxy-cert-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync cert to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Environment secrets + branch protection: only main can use mail-vps.
+    environment: mail-vps
+    # Defense in depth: refuse forks, non-main refs, and wrong repos.
+    if: |
+      github.repository == 'IIRoan/stalwart'
+      && github.event.repository.fork == false
+      && (
+        (github.event_name == 'schedule' && github.ref == 'refs/heads/main')
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      )
+    steps:
+      - name: Assert trusted ref
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REPOSITORY}" = "IIRoan/stalwart"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_EVENT_NAME}" = "schedule" -o "${GITHUB_EVENT_NAME}" = "workflow_dispatch"
+
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # Only the workflow ref (main). Never check out a PR head.
+          ref: main
+          persist-credentials: false
+
+      - name: Setup Python
+        # actions/setup-python@v5.4.0
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check "psycopg[binary]>=3.2"
+
+      - name: Sync HAProxy certificate
+        env:
+          # Environment secrets (Settings → Environments → mail-vps), not repo secrets.
+          STALWART_DATABASE_URL: ${{ secrets.STALWART_DATABASE_URL }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+          CERT_HOST: mail.solace.onl
+          RENEW_BEFORE_DAYS: "14"
+        run: |
+          set -euo pipefail
+          : "${STALWART_DATABASE_URL:?set Environment secret STALWART_DATABASE_URL on mail-vps}"
+          : "${VPS_SSH_PRIVATE_KEY:?set Environment secret VPS_SSH_PRIVATE_KEY on mail-vps}"
+          export VPS_SSH_HOST="${VPS_SSH_HOST:-mail.solace.onl}"
+          export VPS_SSH_USER="${VPS_SSH_USER:-root}"
+          export VPS_SSH_PORT="${VPS_SSH_PORT:-22}"
+
+          FORCE_FLAG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+            && [ "${{ inputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+
+          # Do not expand untrusted input into the shell beyond the boolean above.
+          python3 scripts/sync-haproxy-cert.py ${FORCE_FLAG}

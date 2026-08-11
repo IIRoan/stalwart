@@ -38,6 +38,9 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 - **Ports:** 25, 465, 993, 443
 - **Repo:** `vps/haproxy.cfg` → `/etc/haproxy/haproxy.cfg`
 - **Active slot:** `/etc/haproxy/stalwart-active-slot` (`blue` or `green`)
+- **TLS cert:** `/etc/haproxy/certs/mail.solace.onl.pem` (HAProxy terminates HTTPS). This file is **separate** from Stalwart’s ACME-managed certificates (used for SMTP STARTTLS on :25). Renewing Stalwart ACME does **not** update HAProxy.
+  - One-shot: `vps/install-haproxy-cert.sh`
+  - Automated: GitHub Action + `scripts/sync-haproxy-cert.py` (see [scripts/README-haproxy-cert-sync.md](scripts/README-haproxy-cert-sync.md))
 
 ### frps
 
@@ -81,6 +84,7 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 - **Role:** JSON health snapshot for Gatus SSH probes from Railway (`status.solace.onl`).
 - **Repo:** `vps/gatus-monitor.sh` → `/usr/local/bin/gatus-monitor.sh`
 - **Setup:** See [gatus/README.md](gatus/README.md#optional)
+- **JMAP diagnostics:** reports `jmap.tunnel.ms` (frp → Stalwart) and `jmap.edge.ms` (HAProxy → frp → Stalwart)
 
 ## Blue/green cutover
 

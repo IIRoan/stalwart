@@ -145,6 +145,9 @@ slot when the active tunnel goes down, not when both slots are up during overlap
 | `vps/stalwart-switch-slot.sh` | HAProxy blue/green cutover (warm weights → edge check → exclusive) |
 | `vps/haproxy-sync-active-slot.sh` | Reconcile HAProxy weights after reload |
 | `vps/gatus-monitor.sh` | VPS health JSON for Gatus SSH probes |
+| `vps/install-haproxy-cert.sh` | Install HAProxy `:443` PEM on the VPS |
+| `scripts/sync-haproxy-cert.py` | Export Stalwart ACME cert → deploy to HAProxy |
+| `.github/workflows/sync-haproxy-cert.yml` | Weekly / on-demand HAProxy cert sync |
 | `VPS_SERVICES.md` | VPS service reference and ops commands |
 
 ## Status page (Gatus)

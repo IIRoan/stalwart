@@ -1,1 +1,6 @@
+<<<<<<< HEAD
 .env
+=======
+
+.local-certs/
+>>>>>>> 184e2a5 (Add automated HAProxy TLS cert sync from Stalwart ACME.)
