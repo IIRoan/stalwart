@@ -47,7 +47,7 @@ Enable Prometheus in the Stalwart WebUI and set `prometheus_user` / `prometheus_
 | `stalwart-imap` | IMAP active connection gauge |
 | `stalwart-jmap-http` | HTTP/JMAP connection and request metrics |
 | `stalwart-store` | User/domain count gauges |
-| `stalwart-error-counters` | Store errors, SMTP concurrency limit, calendar expansion errors |
+| `stalwart-error-counters` | Store I/O present; fails if unexpected/S3/SMTP-concurrency/calendar error counters appear |
 
 These verify that metric families are being exported. Counter **values** are cumulative —
 use Grafana ([dashboard #23498](https://grafana.com/grafana/dashboards/23498-service-stalwart/))

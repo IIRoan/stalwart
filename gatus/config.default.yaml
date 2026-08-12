@@ -191,7 +191,13 @@ endpoints:
     group: Stalwart Metrics
     interval: 120s
     conditions:
+      # After Stalwart 0.16.12, zero-valued event counters are not exported.
+      # Require store I/O metrics (proves BlobStore/DataStore are live) and treat
+      # known error counters as unhealthy only when they appear (value > 0).
       - "[STATUS] == 200"
-      - "[BODY] == pat(*store_unexpected_error*)"
-      - "[BODY] == pat(*smtp_concurrency_limit_exceeded*)"
-      - "[BODY] == pat(*calendar_rule_expansion_error*)"
+      - "[BODY] == pat(*store_blob_read*)"
+      - "[BODY] == pat(*store_data_write*)"
+      - "[BODY] != pat(*store_unexpected_error*)"
+      - "[BODY] != pat(*store_s3_error*)"
+      - "[BODY] != pat(*smtp_concurrency_limit_exceeded*)"
+      - "[BODY] != pat(*calendar_rule_expansion_error*)"
