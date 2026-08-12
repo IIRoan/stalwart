@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Migrate blobs from current BlobStore (usually FileSystem volume) -> Railway bucket (S3).
-# Prefer the entrypoint path: set BLOB_MIGRATE_TO_S3=true on stalwart-mail and redeploy.
+# Copy FileSystem blobs -> Railway bucket, then point BlobStore at S3.
+# Prefer: set BLOB_MIGRATE_TO_S3=true on stalwart-mail and redeploy.
 # Requires BUCKET / BUCKET_ENDPOINT / BUCKET_REGION / BUCKET_ACCESS_KEY_ID /
 # BUCKET_SECRET_ACCESS_KEY (Railway bucket variable references).
 set -euo pipefail
 
-EXPORT_DIR="${BLOB_EXPORT_DIR:-/tmp/stalwart-blob-export-s3}"
-CONFIG="${STALWART_CONFIG:-/etc/stalwart/config.json}"
+BLOB_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
 KEY_PREFIX="${BLOB_S3_KEY_PREFIX:-stalwart/}"
+SYNC_SCRIPT="${BLOB_S3_SYNC_SCRIPT:-/usr/local/share/stalwart/sync-fs-blobs-to-s3.py}"
 
 : "${BUCKET:?BUCKET required}"
 : "${BUCKET_ENDPOINT:?BUCKET_ENDPOINT required}"
@@ -20,6 +20,13 @@ STALWART_URL="${STALWART_URL:-http://${IP}:8080}"
 STALWART_ADMIN_TOKEN="${STALWART_ADMIN_TOKEN:?STALWART_ADMIN_TOKEN required}"
 
 CLI=(stalwart-cli --url "$STALWART_URL" --api-key "$STALWART_ADMIN_TOKEN")
+
+if [ ! -f "$SYNC_SCRIPT" ]; then
+	SYNC_SCRIPT="$(CDPATH= cd -- "$(dirname "$0")" && pwd)/sync-fs-blobs-to-s3.py"
+fi
+
+echo "=== Copy FileSystem blobs -> S3 ($BUCKET) ==="
+python3 "$SYNC_SCRIPT" --src "$BLOB_PATH" --prefix "$KEY_PREFIX"
 
 S3_JSON="$(python3 - <<PY
 import json, os
@@ -47,20 +54,10 @@ print(json.dumps({
 PY
 )"
 
-echo "=== Export blobs from current BlobStore ==="
-rm -rf "$EXPORT_DIR"
-mkdir -p "$EXPORT_DIR"
-EXPORT_TYPES=blob /usr/local/bin/stalwart --config "$CONFIG" --export "$EXPORT_DIR"
-du -sh "$EXPORT_DIR"
-
-echo "=== Switch BlobStore -> S3 ($BUCKET @ $BUCKET_ENDPOINT, prefix=$KEY_PREFIX) ==="
+echo "=== Switch BlobStore -> S3 ==="
 "${CLI[@]}" update BlobStore --json "$S3_JSON"
 "${CLI[@]}" create Action/ReloadSettings
 sleep 2
-
-echo "=== Import blobs into Railway bucket ==="
-/usr/local/bin/stalwart --config "$CONFIG" --import "$EXPORT_DIR"
-rm -rf "$EXPORT_DIR"
 
 echo "=== Done ==="
 "${CLI[@]}" get BlobStore

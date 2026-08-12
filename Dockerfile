@@ -19,13 +19,16 @@ RUN apt-get update \
     && rm -rf /tmp/stalwart-cli-x86_64-unknown-linux-gnu \
     && chmod 755 /usr/local/bin/stalwart-cli \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /var/log/stalwart /etc/stalwart /var/stalwart/blobs \
-    && chown -R stalwart:stalwart /var/log/stalwart /etc/stalwart /var/stalwart/blobs
+    && mkdir -p /var/log/stalwart /etc/stalwart /var/stalwart/blobs /usr/local/share/stalwart \
+    && chown -R stalwart:stalwart /var/log/stalwart /etc/stalwart /var/stalwart/blobs /usr/local/share/stalwart
 
 COPY railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
+COPY scripts/sync-fs-blobs-to-s3.py /usr/local/share/stalwart/sync-fs-blobs-to-s3.py
 RUN sed -i 's/\r$//' /usr/local/bin/railway-entrypoint.sh \
     && chmod 755 /usr/local/bin/railway-entrypoint.sh \
-    && chown stalwart:stalwart /usr/local/bin/railway-entrypoint.sh
+    && chmod 755 /usr/local/share/stalwart/sync-fs-blobs-to-s3.py \
+    && chown stalwart:stalwart /usr/local/bin/railway-entrypoint.sh \
+    && chown -R stalwart:stalwart /usr/local/share/stalwart
 
 USER root
 

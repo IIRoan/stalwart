@@ -727,39 +727,52 @@ migrate_blobs_to_fs() {
 }
 
 migrate_blobs_to_s3() {
-	EXPORT_DIR="${BLOB_EXPORT_DIR:-/tmp/stalwart-blob-export-s3}"
 	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
-	CONFIG=/etc/stalwart/config.json
+	SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" 2>/dev/null && pwd)"
+	SYNC_SCRIPT="${BLOB_S3_SYNC_SCRIPT:-}"
 
-	# Keep the volume mounted for this deploy so we can export from FileSystem.
+	# Keep the volume mounted for this deploy so we can read FileSystem blobs.
 	prepare_blob_volume
 
-	rm -rf "$EXPORT_DIR"
-	mkdir -p "$EXPORT_DIR"
-	chown -R stalwart:stalwart "$EXPORT_DIR" 2>/dev/null || true
-
-	log info "Exporting blob family from current BlobStore (EXPORT_TYPES=blob)..."
-	if ! run_as_stalwart env EXPORT_TYPES=blob /usr/local/bin/stalwart --config "$CONFIG" --export "$EXPORT_DIR"; then
-		die "Blob export failed."
+	if [ ! -d "$BLOB_FS_PATH" ]; then
+		die "Blob filesystem path missing: ${BLOB_FS_PATH}"
 	fi
 
-	export_size="$(du -sh "$EXPORT_DIR" | awk '{print $1}')"
-	if ! find "$EXPORT_DIR" -type f 2>/dev/null | head -n 1 | grep -q .; then
-		die "Blob export directory is empty; nothing to migrate."
+	file_count="$(find "$BLOB_FS_PATH" -type f 2>/dev/null | wc -l | tr -d ' ')"
+	if [ "${file_count:-0}" -lt 1 ]; then
+		die "No blob files under ${BLOB_FS_PATH}; refusing to flip BlobStore to S3."
 	fi
 
-	log info "Exported blob dump (${export_size}). Switching BlobStore to S3 before import..."
+	# Prefer the repo script when present (local/dev); fall back to embedded copy.
+	if [ -z "$SYNC_SCRIPT" ]; then
+		if [ -f /usr/local/share/stalwart/sync-fs-blobs-to-s3.py ]; then
+			SYNC_SCRIPT=/usr/local/share/stalwart/sync-fs-blobs-to-s3.py
+		elif [ -f "${SCRIPT_DIR}/scripts/sync-fs-blobs-to-s3.py" ]; then
+			SYNC_SCRIPT="${SCRIPT_DIR}/scripts/sync-fs-blobs-to-s3.py"
+		else
+			die "sync-fs-blobs-to-s3.py not found in image; rebuild with the script copied in."
+		fi
+	fi
+
+	# A previous failed --import attempt may have left BlobStore on S3. Point it
+	# back at the volume until the object copy finishes.
+	log info "Ensuring BlobStore is FileSystem during copy (source of truth: volume)..."
+	start_migrate_stalwart
+	blobstore_set_filesystem
+	stop_migrate_stalwart
+
+	fs_size="$(du -sh "$BLOB_FS_PATH" | awk '{print $1}')"
+	log info "Copying ${file_count} FileSystem blobs (${fs_size}) from ${BLOB_FS_PATH} to s3://${BUCKET}/..."
+	if ! python3 "$SYNC_SCRIPT" --src "$BLOB_FS_PATH"; then
+		die "FileSystem -> S3 blob copy failed."
+	fi
+
+	log info "Blob objects uploaded. Pointing BlobStore at S3..."
 	start_migrate_stalwart
 	blobstore_set_s3
 	stop_migrate_stalwart
 
-	log info "Importing blobs into Railway bucket ${BUCKET}..."
-	if ! run_as_stalwart /usr/local/bin/stalwart --config "$CONFIG" --import "$EXPORT_DIR"; then
-		die "Blob import to S3 failed."
-	fi
-
-	rm -rf "$EXPORT_DIR"
-	log info "Blob migration to S3 finished (${export_size} -> bucket=${BUCKET})."
+	log info "Blob migration to S3 finished (${file_count} files, ${fs_size} -> bucket=${BUCKET})."
 	log info "Next: unset BLOB_MIGRATE_TO_S3, detach volume stalwart-mail-volume-21uH, redeploy."
 }
 

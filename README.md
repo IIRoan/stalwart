@@ -196,11 +196,14 @@ Bucket + credential variable references are already provisioned on
 `stalwart-mail`. To migrate:
 
 1. Keep the `/var/stalwart/blobs` volume attached for this deploy.
-2. Set `BLOB_MIGRATE_TO_S3=true` on **stalwart-mail** and redeploy (brief outage).
-3. Watch logs for `Blob migration to S3 finished` and a non-empty export size.
-4. Unset `BLOB_MIGRATE_TO_S3`.
-5. Detach (then delete) volume `stalwart-mail-volume-21uH`.
-6. Redeploy — Railway overlap + your blue/green slot cutover can run without the volume gap.
+2. Deploy code that includes `scripts/sync-fs-blobs-to-s3.py`.
+3. Set `BLOB_MIGRATE_TO_S3=true` on **stalwart-mail** and redeploy (brief outage).
+4. Watch logs for `Copying N FileSystem blobs` then `Blob migration to S3 finished`.
+   This **copies files from the volume into the bucket**, then flips `BlobStore` to
+   S3. It does **not** use `stalwart --import` (that fails on a live database).
+5. Unset `BLOB_MIGRATE_TO_S3`.
+6. Detach (then delete) volume `stalwart-mail-volume-21uH`.
+7. Redeploy — Railway overlap + your blue/green slot cutover can run without the volume gap.
 
 Emergency rollback: `scripts/stalwart-blobstore-default.sh` (Postgres) or
 re-attach the volume and point BlobStore back at FileSystem.
