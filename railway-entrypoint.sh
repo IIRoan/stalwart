@@ -642,6 +642,51 @@ blobstore_set_filesystem() {
 	log info "BlobStore set to FileSystem (${BLOB_FS_PATH})."
 }
 
+blobstore_s3_json() {
+	[ -n "${BUCKET:-}" ] || die "BUCKET is required for S3 BlobStore (Railway bucket name)."
+	[ -n "${BUCKET_ENDPOINT:-}" ] || die "BUCKET_ENDPOINT is required for S3 BlobStore."
+	[ -n "${BUCKET_REGION:-}" ] || die "BUCKET_REGION is required for S3 BlobStore."
+	python3 - <<'PY'
+import json, os
+print(json.dumps({
+    "@type": "S3",
+    "bucket": os.environ["BUCKET"],
+    "region": {
+        "@type": "Custom",
+        "customEndpoint": os.environ["BUCKET_ENDPOINT"],
+        "customRegion": os.environ["BUCKET_REGION"],
+    },
+    "accessKey": {
+        "@type": "EnvironmentVariable",
+        "variableName": "BUCKET_ACCESS_KEY_ID",
+    },
+    "secretKey": {
+        "@type": "EnvironmentVariable",
+        "variableName": "BUCKET_SECRET_ACCESS_KEY",
+    },
+    "securityToken": {"@type": "None"},
+    "sessionToken": {"@type": "None"},
+    "keyPrefix": os.environ.get("BLOB_S3_KEY_PREFIX", "stalwart/"),
+    "verifyAfterWrite": True,
+}))
+PY
+}
+
+blobstore_set_s3() {
+	[ -n "${STALWART_ADMIN_TOKEN:-}" ] || die "STALWART_ADMIN_TOKEN required for blob migration."
+	[ -n "${BUCKET_ACCESS_KEY_ID:-}" ] || die "BUCKET_ACCESS_KEY_ID is required for S3 BlobStore."
+	[ -n "${BUCKET_SECRET_ACCESS_KEY:-}" ] || die "BUCKET_SECRET_ACCESS_KEY is required for S3 BlobStore."
+	s3_json="$(blobstore_s3_json)"
+	stalwart_url="$(migrate_cli_url)"
+	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
+		update BlobStore --json "$s3_json" \
+		|| die "Could not set BlobStore to S3."
+	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
+		create Action/ReloadSettings >/dev/null 2>&1 || true
+	sleep 2
+	log info "BlobStore set to S3 (bucket=${BUCKET}; endpoint=${BUCKET_ENDPOINT})."
+}
+
 migrate_blobs_to_fs() {
 	EXPORT_DIR="${BLOB_EXPORT_DIR:-/tmp/stalwart-blob-export-fs}"
 	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
@@ -679,6 +724,43 @@ migrate_blobs_to_fs() {
 
 	rm -rf "$EXPORT_DIR"
 	log info "Blob migration finished (${export_size} imported to ${BLOB_FS_PATH})."
+}
+
+migrate_blobs_to_s3() {
+	EXPORT_DIR="${BLOB_EXPORT_DIR:-/tmp/stalwart-blob-export-s3}"
+	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
+	CONFIG=/etc/stalwart/config.json
+
+	# Keep the volume mounted for this deploy so we can export from FileSystem.
+	prepare_blob_volume
+
+	rm -rf "$EXPORT_DIR"
+	mkdir -p "$EXPORT_DIR"
+	chown -R stalwart:stalwart "$EXPORT_DIR" 2>/dev/null || true
+
+	log info "Exporting blob family from current BlobStore (EXPORT_TYPES=blob)..."
+	if ! run_as_stalwart env EXPORT_TYPES=blob /usr/local/bin/stalwart --config "$CONFIG" --export "$EXPORT_DIR"; then
+		die "Blob export failed."
+	fi
+
+	export_size="$(du -sh "$EXPORT_DIR" | awk '{print $1}')"
+	if ! find "$EXPORT_DIR" -type f 2>/dev/null | head -n 1 | grep -q .; then
+		die "Blob export directory is empty; nothing to migrate."
+	fi
+
+	log info "Exported blob dump (${export_size}). Switching BlobStore to S3 before import..."
+	start_migrate_stalwart
+	blobstore_set_s3
+	stop_migrate_stalwart
+
+	log info "Importing blobs into Railway bucket ${BUCKET}..."
+	if ! run_as_stalwart /usr/local/bin/stalwart --config "$CONFIG" --import "$EXPORT_DIR"; then
+		die "Blob import to S3 failed."
+	fi
+
+	rm -rf "$EXPORT_DIR"
+	log info "Blob migration to S3 finished (${export_size} -> bucket=${BUCKET})."
+	log info "Next: unset BLOB_MIGRATE_TO_S3, detach volume stalwart-mail-volume-21uH, redeploy."
 }
 
 wait_for_frpc_proxies() {
@@ -761,11 +843,26 @@ start_frpc() {
 
 [ -n "$PGHOST" ] && [ -n "$PGUSER" ] && [ -n "$PGPASSWORD" ] || die "Missing PostgreSQL credentials."
 
+if [ "${BLOB_MIGRATE_TO_FS:-}" = "true" ] && [ "${BLOB_MIGRATE_TO_S3:-}" = "true" ]; then
+	die "Set only one of BLOB_MIGRATE_TO_FS or BLOB_MIGRATE_TO_S3."
+fi
+
 if [ "${BLOB_MIGRATE_TO_FS:-}" = "true" ]; then
 	write_store_config
 	start_migrate_health_server
 	migrate_blobs_to_fs || die "Blob migration to filesystem failed."
 	log info "Blob migration complete. Unset BLOB_MIGRATE_TO_FS and redeploy to resume normal service."
+	while kill -0 "$MIGRATE_HEALTH_PID" 2>/dev/null; do
+		sleep 60
+	done
+	die "Migrate health listener exited unexpectedly."
+fi
+
+if [ "${BLOB_MIGRATE_TO_S3:-}" = "true" ]; then
+	write_store_config
+	start_migrate_health_server
+	migrate_blobs_to_s3 || die "Blob migration to S3 failed."
+	log info "Blob migration to S3 complete. Unset BLOB_MIGRATE_TO_S3, detach the blobs volume, and redeploy."
 	while kill -0 "$MIGRATE_HEALTH_PID" 2>/dev/null; do
 		sleep 60
 	done

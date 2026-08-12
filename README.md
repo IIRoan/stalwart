@@ -171,22 +171,41 @@ See [gatus/README.md](gatus/README.md).
 | `RELAY_ROUTE_ID` | no | Stalwart MtaRoute id (default `ivnbzc1aaba9`) |
 | `RELAY_BIND_ADDR` | no | Override container private IP for relay route |
 | `PG_POOL_MAX_CONNECTIONS` | no | Stalwart → Postgres pool size (default `6`) |
+| `BUCKET` / `BUCKET_*` | yes (for S3) | Railway bucket refs (`stalwart-blobs.*`) for BlobStore |
+| `BLOB_MIGRATE_TO_S3` | no | One-shot: export volume blobs → Railway bucket |
 
-### Blob storage (Railway volume)
+### Blob storage (Railway bucket)
 
-Message bodies are stored on a **Railway volume** mounted at
-`/var/stalwart/blobs` (`BlobStore` type `FileSystem`, depth 2). Postgres holds
-metadata only. The entrypoint ensures the volume is owned by the `stalwart` user
-before the server starts.
+Message bodies live in the **Railway bucket** `stalwart-blobs` (Amsterdam), via
+Stalwart `BlobStore` type `S3` with a custom endpoint. Postgres holds metadata
+only. Access keys are read from env (`BUCKET_ACCESS_KEY_ID` /
+`BUCKET_SECRET_ACCESS_KEY`), not stored in the DB.
 
-**Production status:** ~128 MB of blobs on volume `stalwart-mail-volume-21uH`.
+This removes the `/var/stalwart/blobs` volume so Railway can overlap old and new
+containers (zero-downtime deploys).
 
 | Script | Purpose |
 |--------|---------|
 | `scripts/stalwart-blobstore-default.sh` | Emergency rollback of BlobStore to Postgres |
-| `scripts/stalwart-migrate-blobs-to-fs.sh` | Manual Postgres → volume migration (server stopped) |
+| `scripts/stalwart-migrate-blobs-to-fs.sh` | Legacy Postgres → volume migration |
+| `scripts/stalwart-migrate-blobs-to-s3.sh` | Manual volume → bucket migration |
 
-### Migrating Postgres blobs to the volume (one-time)
+### Migrating volume blobs to the Railway bucket (one-time)
+
+Bucket + credential variable references are already provisioned on
+`stalwart-mail`. To migrate:
+
+1. Keep the `/var/stalwart/blobs` volume attached for this deploy.
+2. Set `BLOB_MIGRATE_TO_S3=true` on **stalwart-mail** and redeploy (brief outage).
+3. Watch logs for `Blob migration to S3 finished` and a non-empty export size.
+4. Unset `BLOB_MIGRATE_TO_S3`.
+5. Detach (then delete) volume `stalwart-mail-volume-21uH`.
+6. Redeploy — Railway overlap + your blue/green slot cutover can run without the volume gap.
+
+Emergency rollback: `scripts/stalwart-blobstore-default.sh` (Postgres) or
+re-attach the volume and point BlobStore back at FileSystem.
+
+### Legacy: Migrating Postgres blobs to the volume (one-time)
 
 Set `BLOB_MIGRATE_TO_FS=true` on **stalwart-mail** — `railway-entrypoint.sh`
 runs export from Postgres (BlobStore → Default), import to the volume (BlobStore

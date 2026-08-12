@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Apply balanced Stalwart settings: fast webmail, lower RAM than factory defaults.
 
-BlobStore on Railway volume (FileSystem). Keeps 50 MB message cache and JMAP
+BlobStore on Railway bucket (S3). Keeps 50 MB message cache and JMAP
 concurrency fixes; trims auxiliary caches and disables Postgres telemetry history.
 """
 from __future__ import annotations
