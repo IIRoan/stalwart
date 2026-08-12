@@ -13,22 +13,24 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /gatus .
 
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates apache2-utils tzdata wget \
+RUN apk add --no-cache ca-certificates apache2-utils tzdata wget python3 \
     && mkdir -p /etc/gatus /data \
     && rm -rf /var/cache/apk/*
 
 COPY --from=gatus-builder /gatus /usr/local/bin/gatus
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY stalwart-discord-bridge.py /usr/local/bin/stalwart-discord-bridge.py
 COPY config.default.yaml /etc/gatus/config.default.yaml
 
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/gatus
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/gatus \
+    && chmod 644 /usr/local/bin/stalwart-discord-bridge.py
 
 ENV GATUS_CONFIG_PATH=/data/config.yaml
 ENV PORT=8080
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
     CMD wget -q -O - "http://127.0.0.1:${PORT}/health" > /dev/null || exit 1
 
 CMD ["/usr/local/bin/entrypoint.sh"]

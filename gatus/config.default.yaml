@@ -27,6 +27,7 @@ ui:
   dashboard-subheading: "Three-month uptime for Solace and mail infrastructure."
   logo: /solace-logo.png
   link: "https://solace.onl"
+  # Default when no cookie / OS preference; prefers-color-scheme still wins.
   dark-mode: false
   default-sort-by: group
   favicon:
@@ -37,9 +38,84 @@ ui:
     - name: "Open Solace"
       link: "https://solace.onl"
   custom-css: |
+    /* Solace light / dark tokens (HSL channels for Tailwind hsl(var(--*))) */
+    :root {
+      --background: 0 0% 97.6%;
+      --foreground: 0 0% 12.5%;
+      --card: 0 0% 98.8%;
+      --card-foreground: 0 0% 12.5%;
+      --popover: 0 0% 98.8%;
+      --popover-foreground: 0 0% 12.5%;
+      --primary: 16.7 22% 32.2%;
+      --primary-foreground: 0 0% 100%;
+      --secondary: 34.1 100% 85.5%;
+      --secondary-foreground: 16.3 50.4% 22.9%;
+      --muted: 0 0% 93.7%;
+      --muted-foreground: 0 0% 33.3%;
+      --accent: 0 0% 91%;
+      --accent-foreground: 0 0% 12.5%;
+      --destructive: 10.2 77.9% 53.9%;
+      --destructive-foreground: 0 0% 100%;
+      --border: 0 0% 82%;
+      --input: 0 0% 84.7%;
+      --ring: 16.7 22% 32.2%;
+      --radius: 0.5rem;
+    }
+
+    :root.dark {
+      --background: 0 0% 6.7%;
+      --foreground: 0 0% 93.3%;
+      --card: 0 0% 9.8%;
+      --card-foreground: 0 0% 93.3%;
+      --popover: 0 0% 9.8%;
+      --popover-foreground: 0 0% 93.3%;
+      --primary: 29.5 100% 88%;
+      --primary-foreground: 183.2 54.3% 6.9%;
+      --secondary: 28.2 17.5% 19%;
+      --secondary-foreground: 29.5 100% 88%;
+      --muted: 0 0% 13.3%;
+      --muted-foreground: 0 0% 62%;
+      --accent: 0 0% 16.5%;
+      --accent-foreground: 0 0% 93.3%;
+      --destructive: 10.2 77.9% 53.9%;
+      --destructive-foreground: 0 0% 100%;
+      --border: 46.7 10.3% 17.1%;
+      --input: 0 0% 28.2%;
+      --ring: 29.5 100% 88%;
+    }
+
+    body,
+    #global {
+      background-color: hsl(var(--background));
+      color: hsl(var(--foreground));
+    }
+
     header .container,
     .dashboard-container .container {
       max-width: 80rem;
+    }
+
+    header {
+      border-bottom: 1px solid hsl(var(--border));
+      background: hsl(var(--card));
+    }
+
+    header img,
+    header .logo {
+      border-radius: 0.35rem;
+    }
+
+    .dashboard-container h1,
+    .dashboard-container h2 {
+      letter-spacing: -0.02em;
+    }
+
+    a {
+      color: hsl(var(--primary));
+    }
+
+    a:hover {
+      opacity: 0.85;
     }
 
     footer,

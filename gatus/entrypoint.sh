@@ -1,8 +1,12 @@
 #!/bin/sh
 # Railway entrypoint for Solace Gatus (status.solace.onl).
+# Public PORT is a thin proxy: Gatus on :8081, Stalwart→Discord bridge on /hooks/stalwart.
 set -eu
 
 mkdir -p /data
+
+GATUS_INTERNAL_PORT="${GATUS_INTERNAL_PORT:-8081}"
+PUBLIC_PORT="${PORT}"
 
 write_base_config() {
 	if [ -n "${GATUS_CONFIG_YAML:-}" ]; then
@@ -108,8 +112,27 @@ if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
 	echo "DISCORD_WEBHOOK_URL is not set; Discord downtime alerts are disabled." >&2
 fi
 
+if [ -z "${STALWART_WEBHOOK_BEARER:-}" ]; then
+	echo "STALWART_WEBHOOK_BEARER is not set; /hooks/stalwart will reject Stalwart alerts." >&2
+fi
+
 append_vps_ssh_endpoints
 
+# Gatus binds internally; the public PORT is the Discord bridge + reverse proxy.
+# Bind PORT immediately so Railway/Docker healthchecks are not connection-refused
+# while Gatus is still starting. /health is proxied; 502s during boot are covered
+# by HEALTHCHECK start-period.
 export GATUS_CONFIG_PATH="${GATUS_CONFIG_PATH:-/data/config.yaml}"
+export GATUS_INTERNAL_PORT
+export PORT="${GATUS_INTERNAL_PORT}"
 
-exec /usr/local/bin/gatus
+/usr/local/bin/gatus &
+GATUS_PID=$!
+
+if ! kill -0 "$GATUS_PID" 2>/dev/null; then
+	echo "Gatus failed to start" >&2
+	exit 1
+fi
+
+export PORT="${PUBLIC_PORT}"
+exec python3 /usr/local/bin/stalwart-discord-bridge.py

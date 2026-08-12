@@ -156,6 +156,12 @@ Uptime monitoring for Solace and mail lives in [`gatus/`](gatus/). Deploy it as 
 Railway service** (root directory `gatus`, volume at `/data`, domain `status.solace.onl`).
 See [gatus/README.md](gatus/README.md).
 
+**Alert split:** Gatus Discord alerts cover endpoint/scrape failures. Stalwart Enterprise
+metric Alerts (email + webhook) cover live counters such as S3/store errors and SMTP
+concurrency — apply with `scripts/apply-stalwart-alerts.py` and set matching
+`STALWART_WEBHOOK_BEARER` + `DISCORD_WEBHOOK_URL` on the Monitoring service so
+`telemetry.alert` events reach Discord via `POST /hooks/stalwart`.
+
 ## Railway environment variables
 
 | Variable | Required | Purpose |
