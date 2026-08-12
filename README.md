@@ -134,7 +134,7 @@ slot when the active tunnel goes down, not when both slots are up during overlap
 | Path | Purpose |
 |------|---------|
 | `railway-entrypoint.sh` | Stalwart + health server + frpc + relay setup |
-| `railway.toml` | Railway healthcheck config |
+| `railway.toml` | Railway healthcheck + overlap/drain (zero-downtime once volume is detached) |
 | `Dockerfile` | Stalwart image + frpc + stalwart-cli |
 | `gatus/` | Gatus status page for Railway (`status.solace.onl`) |
 | `vps/haproxy.cfg` | Public edge proxy (install on VPS) |
@@ -260,6 +260,13 @@ healthy. The endpoint returns **503** until all of the following are true:
 - frpc process alive with `smtp-{slot}` and `https-{slot}` proxies online
 - Outbound relay STCP visitor listening on `:2525`
 - VPS slot promotion succeeded (`POST /slot-manager/activate`) when `SLOT_MANAGER_TOKEN` is set
+
+With the blobs volume detached, Railway can run old and new containers at once.
+Keep `railway.toml` `healthcheckPath` + `overlapSeconds` + `drainingSeconds` —
+that **is** Railway’s zero-downtime deploy. Removing them falls back to an
+abrupt teardown (defaults are `0`). Your blue/green slot activate still runs
+before the health gate opens; overlap/drain give the old frpc tunnel time to
+exit cleanly after cutover.
 
 Stalwart's real HTTP listener on `:8080` only works through HAProxy with PROXY
 protocol, so it cannot be used as the Railway healthcheck target directly.
