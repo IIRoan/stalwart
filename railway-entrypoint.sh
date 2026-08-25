@@ -214,6 +214,8 @@ method = "token"
 token = "${FRPC_TOKEN}"
 EOF
 
+	# HAProxy already sends PROXY v2. Do not set transport.proxyProtocolVersion
+	# here — a second header is parsed as SMTP (500 Invalid command / QUIT).
 	if [ "$RECOVERY_MODE" != "true" ]; then
 		cat >> "$FRPC_CONFIG" <<EOF
 
@@ -223,7 +225,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 25
 remotePort = ${smtp}
-transport.proxyProtocolVersion = "v2"
 
 [[proxies]]
 name = "submissions-${suffix}"
@@ -231,7 +232,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 465
 remotePort = ${subs}
-transport.proxyProtocolVersion = "v2"
 
 [[proxies]]
 name = "imaps-${suffix}"
@@ -239,7 +239,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 993
 remotePort = ${imaps}
-transport.proxyProtocolVersion = "v2"
 
 [[proxies]]
 name = "submission-${suffix}"
@@ -247,7 +246,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 587
 remotePort = ${subm}
-transport.proxyProtocolVersion = "v2"
 EOF
 	fi
 

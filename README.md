@@ -36,7 +36,7 @@ flowchart TB
     end
 
     MTA --> HAP
-    FRPS <-->|"TCP tunnels<br/>PROXY v2 on mail"| FRPC
+    FRPS <-->|"TCP tunnels<br/>HAProxy PROXY v2 passthrough"| FRPC
     FRPS <-->|"STCP tunnel"| REL
     REL -->|"SMTP + SASL"| FREL
     SW -->|"JMAP / SMTP submit"| SW
@@ -52,7 +52,7 @@ sequenceDiagram
     participant S as Stalwart (Railway)
 
     C->>H: SMTP :25 / IMAPS :993 / HTTPS :443
-    Note over H: TLS termination on :443<br/>PROXY protocol v2 on mail ports
+    Note over H: TLS termination on :443<br/>one PROXY v2 header from HAProxy; frpc must not add another
     H->>F: Forward to localhost frps port<br/>(blue or green slot)
     F->>S: frpc TCP proxy → Stalwart listener
     S-->>C: Mail delivery / JMAP / IMAP
