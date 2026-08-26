@@ -1,18 +1,10 @@
 #!/usr/bin/env python3
-"""Emit JSON health for Gatus SSH monitoring on the mail VPS.
-
-Install:
-  sudo install -m 0755 vps/gatus-monitor.sh /usr/local/bin/gatus-monitor.sh
-
-Restrict the monitor user in ~/.ssh/authorized_keys:
-  command="/usr/local/bin/gatus-monitor.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...
-"""
+"""Emit JSON health for Gatus SSH monitoring on the mail VPS."""
 
 from __future__ import annotations
 
 import json
 import os
-import socket
 import subprocess
 import sys
 import urllib.request
@@ -46,10 +38,34 @@ def read_active_slot() -> str:
         return "blue"
 
 
-def port_open(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(1)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
+def slot_http_ready(port: int) -> bool:
+    # HTTP listeners require PROXY v2; a bare TCP connect logs network.proxy-error end-of-stream.
+    try:
+        result = subprocess.run(
+            [
+                "curl",
+                "-fsS",
+                "--max-time",
+                "2",
+                "--haproxy-protocol",
+                "-H",
+                "Host: mail.solace.onl",
+                f"http://127.0.0.1:{port}/jmap/session",
+            ],
+            check=False,
+            capture_output=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def slot_occupied(slot: str) -> bool:
+    proxies = fetch_frp_proxies()
+    names = FRP_PROXIES[slot]
+    if proxies:
+        return any(proxies.get(name) == "online" for name in names)
+    return slot_http_ready(SLOT_PORTS[slot][1])
 
 
 def service_active(unit: str) -> str:
@@ -106,10 +122,6 @@ def postfix_queue_count() -> int | None:
     return len(lines)
 
 
-def slot_occupied(slot: str) -> bool:
-    return any(port_open(port) for port in SLOT_PORTS[slot])
-
-
 def main() -> int:
     active = read_active_slot()
     proxies = fetch_frp_proxies()
@@ -121,7 +133,7 @@ def main() -> int:
         proxy_names = FRP_PROXIES[slot]
         tunnels[slot] = {
             "occupied": slot_occupied(slot),
-            "http": port_open(SLOT_PORTS[slot][1]),
+            "http": proxies.get(proxy_names[1], "unknown") == "online" if proxies else slot_http_ready(SLOT_PORTS[slot][1]),
             "proxies": {
                 name: proxies.get(name, "unknown") for name in proxy_names
             },

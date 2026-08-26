@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import json
 import os
-import socket
 import subprocess
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ACTIVE_SLOT_FILE = os.environ.get("ACTIVE_SLOT_FILE", "/etc/haproxy/stalwart-active-slot")
@@ -14,7 +14,12 @@ SLOT_PORTS = {
     "blue": (10025, 18080),
     "green": (11025, 19080),
 }
+FRP_PROXIES = {
+    "blue": ("smtp-blue", "https-blue"),
+    "green": ("smtp-green", "https-green"),
+}
 HTTP_HEALTHCHECK_HOST = os.environ.get("HTTP_HEALTHCHECK_HOST", "mail.solace.onl")
+FRPS_DASHBOARD = os.environ.get("FRPS_DASHBOARD_URL", "http://127.0.0.1:7500")
 
 
 def read_active_slot():
@@ -26,17 +31,58 @@ def read_active_slot():
         return "blue"
 
 
-def port_open(port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(1)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
+def fetch_frp_proxies():
+    try:
+        request = urllib.request.Request(
+            f"{FRPS_DASHBOARD}/api/proxy/tcp",
+            headers={"Connection": "close"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=3) as resp:
+            payload = json.load(resp)
+    except Exception:
+        return {}
+    return {
+        entry.get("name", ""): entry.get("status", "offline")
+        for entry in payload.get("proxies", [])
+        if entry.get("name")
+    }
+
+
+def jmap_ready(port):
+    # HTTP listeners require PROXY v2; a bare TCP connect logs network.proxy-error end-of-stream.
+    try:
+        result = subprocess.run(
+            [
+                "curl",
+                "-fsS",
+                "--max-time",
+                "2",
+                "--haproxy-protocol",
+                "-H",
+                f"Host: {HTTP_HEALTHCHECK_HOST}",
+                f"http://127.0.0.1:{port}/jmap/session",
+            ],
+            check=False,
+            capture_output=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def slot_occupied(slot):
+    proxies = fetch_frp_proxies()
+    if proxies:
+        return any(proxies.get(name) == "online" for name in FRP_PROXIES[slot])
+    return jmap_ready(SLOT_PORTS[slot][1])
 
 
 def read_status():
     return {
         "active": read_active_slot(),
-        "blueOccupied": any(port_open(port) for port in SLOT_PORTS["blue"]),
-        "greenOccupied": any(port_open(port) for port in SLOT_PORTS["green"]),
+        "blueOccupied": slot_occupied("blue"),
+        "greenOccupied": slot_occupied("green"),
     }
 
 

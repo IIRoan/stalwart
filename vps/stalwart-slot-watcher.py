@@ -6,7 +6,6 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import socket
 import subprocess
 import time
 import urllib.request
@@ -20,6 +19,7 @@ SLOT_PORTS = {
     "blue": {"http": 18080, "proxies": ("smtp-blue", "https-blue")},
     "green": {"http": 19080, "proxies": ("smtp-green", "https-green")},
 }
+HTTP_HEALTHCHECK_HOST = os.environ.get("HTTP_HEALTHCHECK_HOST", "mail.solace.onl")
 
 
 def read_active_slot() -> str:
@@ -31,10 +31,26 @@ def read_active_slot() -> str:
         return "blue"
 
 
-def port_open(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(1)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
+def jmap_ready(port: int) -> bool:
+    # HTTP listeners require PROXY v2; a bare TCP connect logs network.proxy-error end-of-stream.
+    try:
+        result = subprocess.run(
+            [
+                "curl",
+                "-fsS",
+                "--max-time",
+                "2",
+                "--haproxy-protocol",
+                "-H",
+                f"Host: {HTTP_HEALTHCHECK_HOST}",
+                f"http://127.0.0.1:{port}/jmap/session",
+            ],
+            check=False,
+            capture_output=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def fetch_frp_proxies() -> dict[str, str]:
@@ -58,14 +74,10 @@ def fetch_frp_proxies() -> dict[str, str]:
 
 def slot_tunnel_up(slot: str) -> bool:
     info = SLOT_PORTS[slot]
-    if not port_open(info["http"]):
-        return False
-
     proxies = fetch_frp_proxies()
-    if not proxies:
-        return port_open(info["http"])
-
-    return all(proxies.get(name) == "online" for name in info["proxies"])
+    if proxies:
+        return all(proxies.get(name) == "online" for name in info["proxies"])
+    return jmap_ready(info["http"])
 
 
 def switch_slot(slot: str) -> None:
@@ -83,12 +95,7 @@ def switch_slot(slot: str) -> None:
 
 
 def maybe_promote() -> None:
-    """Fail over only when the active slot tunnel is down.
-
-    New deploys promote themselves via Railway POST /slot-manager/activate once
-    the container health gate opens. Avoid switching while both slots are up or
-    HAProxy will flip-flop during Railway overlap and return 503.
-    """
+    """Fail over only when the active slot tunnel is down."""
     active = read_active_slot()
     occupancy = {slot: slot_tunnel_up(slot) for slot in ("blue", "green")}
 
