@@ -1,7 +1,7 @@
 # VPS services
 
 Public VPS at `193.180.211.139` (`mail.solace.onl`) for Stalwart on Railway.
-Architecture diagrams: [README.md](README.md).
+Architecture diagrams: [README.md](../README.md).
 
 ## Service map
 
@@ -35,12 +35,12 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 ### HAProxy
 
 - **Role:** Public TCP/HTTP edge; TLS on :443; PROXY v2 to frps mail backends.
-- **Ports:** 25, 465, 993, 443
+- **Ports:** 25, 80 (HTTPS redirect), 465, 993, 443. Public `/admin` and `/api` (except `/api/discover`) return 404; admin UI is on `127.0.0.1:8080` via SSH tunnel.
 - **Repo:** `vps/haproxy.cfg` → `/etc/haproxy/haproxy.cfg`
 - **Active slot:** `/etc/haproxy/stalwart-active-slot` (`blue` or `green`)
 - **TLS cert:** `/etc/haproxy/certs/mail.solace.onl.pem` (HAProxy terminates HTTPS). This file is **separate** from Stalwart’s ACME-managed certificates (used for SMTP STARTTLS on :25). Renewing Stalwart ACME does **not** update HAProxy.
   - One-shot: `vps/install-haproxy-cert.sh`
-  - Automated: GitHub Action + `scripts/sync-haproxy-cert.py` (see [scripts/README-haproxy-cert-sync.md](scripts/README-haproxy-cert-sync.md))
+  - Automated: GitHub Action + [`scripts/sync-haproxy-cert.py`](../scripts/sync-haproxy-cert.py) (see [HAProxy TLS cert sync](#haproxy-tls-cert-sync))
 
 ### frps
 
@@ -52,7 +52,7 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 
 - **Role:** STCP proxy exposing Postfix `127.0.0.1:2525` to Railway relay visitors.
 - **Repo:** `vps/frpc-relay.toml` → `/etc/frp/frpc-relay.toml`
-- **Required** for outbound mail from Railway (see [vps/OUTBOUND_RELAY.md](vps/OUTBOUND_RELAY.md))
+- **Required** for outbound mail from Railway (see [OUTBOUND_RELAY.md](OUTBOUND_RELAY.md))
 
 ### Postfix
 
@@ -83,7 +83,7 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 
 - **Role:** JSON health snapshot for Gatus SSH probes from Railway (`status.solace.onl`).
 - **Repo:** `vps/gatus-monitor.sh` → `/usr/local/bin/gatus-monitor.sh`
-- **Setup:** See [gatus/README.md](gatus/README.md#optional)
+- **Setup:** See [gatus/README.md](../gatus/README.md)
 - **JMAP diagnostics:** reports `jmap.tunnel.ms` (frp → Stalwart) and `jmap.edge.ms` (HAProxy → frp → Stalwart)
 
 ## Blue/green cutover
@@ -103,9 +103,16 @@ This avoids `<NOSRV>` / 503 windows when the old Railway container retires mid-c
 Typical cutover time is ~5s.
 
 `stalwart-slot-watcher` is **failover-only** — it does not participate in normal
-deploys. See [README.md](README.md#bluegreen-deploys) for the full sequence.
+deploys. See [README.md](../README.md) for the full sequence.
 
 ## Operations
+
+Admin UI (after the public `/admin` 404):
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 USER@mail.solace.onl
+# browse http://127.0.0.1:8080/admin/
+```
 
 ```bash
 # Service status
@@ -130,6 +137,50 @@ sudo postfix check && sudo systemctl reload postfix
 
 ## Firewall (UFW)
 
-Allow: 22, 25, 465, 587, 993, 443, 7000 (frp control from Railway).
+Allow: 22, 25, 80, 465, 587, 993, 443, 7000 (frp control from Railway).
+
+Port 80 must be open so HAProxy can 301 to HTTPS and send HSTS. Do not leave it firewalled/black-holed.
 
 Port 2525 is **not** exposed publicly — only reachable via the STCP tunnel.
+
+## HAProxy TLS cert sync
+
+HAProxy terminates `https://mail.solace.onl` with `/etc/haproxy/certs/mail.solace.onl.pem`.
+Stalwart ACME renewal does **not** update that PEM. [`scripts/sync-haproxy-cert.py`](../scripts/sync-haproxy-cert.py)
+copies the newest Stalwart cert+key onto the VPS.
+
+Workflow: [`.github/workflows/sync-haproxy-cert.yml`](../.github/workflows/sync-haproxy-cert.yml)
+
+| Trigger | Behavior |
+|---------|----------|
+| Cron (Mondays 06:17 UTC) | Sync only if live HTTPS cert expires within **14 days** |
+| `workflow_dispatch` on `main` | Defaults to `--force` (sync now) |
+
+GitHub Environment **`mail-vps`** (main branch only) holds:
+
+| Secret | Purpose |
+|--------|---------|
+| `STALWART_DATABASE_URL` | Public Postgres URL (`DATABASE_PUBLIC_URL` from Railway `Postgres-stalwart`) |
+| `VPS_SSH_PRIVATE_KEY` | Private key that can SSH to the mail VPS and install the PEM |
+| `VPS_SSH_HOST` | default `mail.solace.onl` |
+| `VPS_SSH_USER` | default `gh-cert-sync` |
+| `VPS_SSH_PORT` | default `22` |
+
+Bootstrap on the VPS as root:
+
+```bash
+sudo ./vps/setup-gh-cert-sync-user.sh
+```
+
+Paste the printed key into `VPS_SSH_PRIVATE_KEY`, set `VPS_SSH_USER=gh-cert-sync`, then delete `/root/gh-cert-sync-github-haproxy-cert.pem`.
+
+Manual run:
+
+```bash
+export STALWART_DATABASE_URL='postgresql://…'
+export VPS_SSH_PRIVATE_KEY="$(cat ~/.ssh/id_ed25519)"
+export VPS_SSH_HOST=193.180.211.139
+export VPS_SSH_USER=gh-cert-sync
+pip install 'psycopg[binary]'
+python3 scripts/sync-haproxy-cert.py --force
+```

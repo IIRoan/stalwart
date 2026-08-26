@@ -1,5 +1,4 @@
-# Run on your VPS: frps -c frps.toml
-# Open TCP 7000 (control) in the VPS firewall for Railway outbound connections only.
+# Run on the VPS: frps -c frps.toml (firewall TCP 7000 for Railway only).
 
 bindAddr = "0.0.0.0"
 bindPort = 7000

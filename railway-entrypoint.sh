@@ -2,18 +2,16 @@
 # Railway-native entrypoint: Stalwart + health listener + frpc.
 set -eu
 
-# The stalwart image user has no home dir; stalwart-cli needs a writable HOME.
+# stalwart-cli needs a writable HOME; the image user has none.
 export HOME="${HOME:-/tmp}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${HOME}/.cache}"
 
 FRPC_LOG_FILE="${FRPC_LOG_FILE:-/tmp/frpc.log}"
 FRPC_RELAY_LOG_FILE="${FRPC_RELAY_LOG_FILE:-/tmp/frpc-relay.log}"
 FRPC_RELAY_STCP_KEY="${FRPC_RELAY_STCP_KEY:-relay-stcp-secret}"
 FRPC_RELAY_LOCAL_PORT="${FRPC_RELAY_LOCAL_PORT:-2525}"
 RELAY_ROUTE_ID="${RELAY_ROUTE_ID:-ivnbzc1aaba9}"
-# Stalwart HTTP/JMAP listener (from DB config). frpc tunnels target this port.
 STALWART_HTTP_PORT="${STALWART_HTTP_PORT:-8080}"
-# Railway healthchecks probe PORT (set PORT=8090 in Railway variables).
 HEALTH_PORT="${PORT:-8090}"
 HEALTH_STATE_PATH="${HEALTH_STATE_PATH:-/tmp/railway-health.json}"
 PG_POOL_MAX_CONNECTIONS="${PG_POOL_MAX_CONNECTIONS:-6}"
@@ -214,8 +212,7 @@ method = "token"
 token = "${FRPC_TOKEN}"
 EOF
 
-	# HAProxy already sends PROXY v2. Do not set transport.proxyProtocolVersion
-	# here — a second header is parsed as SMTP (500 Invalid command / QUIT).
+	# HAProxy already sends PROXY v2; do not add a second header here.
 	if [ "$RECOVERY_MODE" != "true" ]; then
 		cat >> "$FRPC_CONFIG" <<EOF
 
@@ -505,7 +502,7 @@ wait_for_relay_port() {
 }
 
 stalwart_management_url() {
-	# Stalwart HTTP on :8080 is reachable on the container private IP, not loopback.
+	# Stalwart HTTP is on the container private IP, not loopback.
 	printf 'http://%s:%s\n' "$(detect_container_ip)" "${STALWART_HTTP_PORT}"
 }
 
@@ -555,223 +552,83 @@ update_relay_route() {
 	return 1
 }
 
-start_migrate_health_server() {
-	log info "Blob migrate mode: health listener on 0.0.0.0:${HEALTH_PORT} (always 200)."
-	HEALTH_PORT="$HEALTH_PORT" python3 -u <<'PY' &
-import os
-import socket
-import threading
-
-port = int(os.environ["HEALTH_PORT"])
-ok = (
-    b"HTTP/1.1 200 OK\r\n"
-    b"Content-Type: application/json\r\n"
-    b"Connection: close\r\n"
-    b"Content-Length: 62\r\n\r\n"
-    b'{"type":"about:blank","title":"OK","status":200,"detail":"OK"}'
-)
-
-
-def handle(conn):
-    try:
-        conn.recv(4096)
-        conn.sendall(ok)
-    finally:
-        conn.close()
-
-
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-sock.bind(("0.0.0.0", port))
-sock.listen(32)
-while True:
-    client, _addr = sock.accept()
-    threading.Thread(target=handle, args=(client,), daemon=True).start()
-PY
-	MIGRATE_HEALTH_PID=$!
-	sleep 1
+seed_stalwart_cli_schema() {
+	url="$1"
+	schema_src="${STALWART_CLI_SCHEMA:-/usr/local/share/stalwart/cli-schema.json}"
+	latest_src="${STALWART_CLI_SCHEMA_LATEST:-/usr/local/share/stalwart/cli-schema.latest}"
+	[ -f "$schema_src" ] && [ -f "$latest_src" ] || return 0
+	hash="$(python3 -c 'import hashlib,base64,sys; print(base64.urlsafe_b64encode(hashlib.sha256(sys.argv[1].encode()).digest()).decode().rstrip("="))' "$url")"
+	latest_name="$(tr -d '\n' <"$latest_src")"
+	# dirs crate uses XDG_CACHE_HOME or ~/.cache; seed both so apply never needs /api/schema.
+	for cache_root in "${XDG_CACHE_HOME}/stalwart-cli" "${HOME}/.cache/stalwart-cli"; do
+		dest="${cache_root}/${hash}"
+		mkdir -p "$dest"
+		cp -f "$schema_src" "${dest}/schema-${latest_name}.json"
+		printf '%s\n' "$latest_name" >"${dest}/latest"
+	done
 }
 
-stop_migrate_stalwart() {
-	if [ -n "${MIGRATE_STALWART_PID:-}" ] && kill -0 "$MIGRATE_STALWART_PID" 2>/dev/null; then
-		kill "$MIGRATE_STALWART_PID" 2>/dev/null || true
-		wait "$MIGRATE_STALWART_PID" 2>/dev/null || true
-	fi
-	MIGRATE_STALWART_PID=""
+reload_stalwart_settings() {
+	for reload_url in "$@"; do
+		[ -n "$reload_url" ] || continue
+		stalwart-cli --url "$reload_url" --api-key "$STALWART_ADMIN_TOKEN" \
+			create Action/ReloadSettings >/dev/null 2>&1 || true
+	done
 }
 
-start_migrate_stalwart() {
-	CONFIG=/etc/stalwart/config.json
-	stop_migrate_stalwart
-	prepare_blob_volume
-	log info "Starting temporary Stalwart for BlobStore settings changes."
-	run_as_stalwart /usr/local/bin/stalwart --config "$CONFIG" 2>&1 &
-	MIGRATE_STALWART_PID=$!
-	wait_for_stalwart_ports
-}
+apply_stalwart_plan() {
+	[ -n "${STALWART_ADMIN_TOKEN:-}" ] || die "STALWART_ADMIN_TOKEN required to apply config plan."
+	plan_dir="${STALWART_PLAN_DIR:-/usr/local/share/stalwart/plan}"
+	[ -d "$plan_dir" ] || die "Config plan missing at ${plan_dir}."
+	plan="$(mktemp)"
+	cat "$plan_dir"/*.ndjson >"$plan"
+	[ -s "$plan" ] || {
+		rm -f "$plan"
+		die "Config plan is empty at ${plan_dir}."
+	}
 
-migrate_cli_url() {
-	stalwart_management_url
-}
-
-blobstore_set_default() {
-	[ -n "${STALWART_ADMIN_TOKEN:-}" ] || die "STALWART_ADMIN_TOKEN required for blob migration."
-	stalwart_url="$(migrate_cli_url)"
-	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-		update BlobStore --json '{"@type": "Default"}' \
-		|| die "Could not set BlobStore to Default."
-	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-		create Action/ReloadSettings >/dev/null 2>&1 || true
-	sleep 2
-	log info "BlobStore set to Default (export will read Postgres blobs)."
-}
-
-blobstore_set_filesystem() {
-	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
-	[ -n "${STALWART_ADMIN_TOKEN:-}" ] || die "STALWART_ADMIN_TOKEN required for blob migration."
-	prepare_blob_volume
-	stalwart_url="$(migrate_cli_url)"
-	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-		update BlobStore --json "{\"@type\": \"FileSystem\", \"path\": \"$BLOB_FS_PATH\", \"depth\": 2}" \
-		|| die "Could not set BlobStore to FileSystem."
-	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-		create Action/ReloadSettings >/dev/null 2>&1 || true
-	sleep 2
-	log info "BlobStore set to FileSystem (${BLOB_FS_PATH})."
-}
-
-blobstore_s3_json() {
-	[ -n "${BUCKET:-}" ] || die "BUCKET is required for S3 BlobStore (Railway bucket name)."
-	[ -n "${BUCKET_ENDPOINT:-}" ] || die "BUCKET_ENDPOINT is required for S3 BlobStore."
-	[ -n "${BUCKET_REGION:-}" ] || die "BUCKET_REGION is required for S3 BlobStore."
-	python3 - <<'PY'
-import json, os
-print(json.dumps({
-    "@type": "S3",
-    "bucket": os.environ["BUCKET"],
-    "region": {
-        "@type": "Custom",
-        "customEndpoint": os.environ["BUCKET_ENDPOINT"],
-        "customRegion": os.environ["BUCKET_REGION"],
-    },
-    "accessKey": {
-        "@type": "EnvironmentVariable",
-        "variableName": "BUCKET_ACCESS_KEY_ID",
-    },
-    "secretKey": {
-        "@type": "EnvironmentVariable",
-        "variableName": "BUCKET_SECRET_ACCESS_KEY",
-    },
-    "securityToken": {"@type": "None"},
-    "sessionToken": {"@type": "None"},
-    "keyPrefix": os.environ.get("BLOB_S3_KEY_PREFIX", "stalwart/"),
-    "verifyAfterWrite": True,
-}))
-PY
-}
-
-blobstore_set_s3() {
-	[ -n "${STALWART_ADMIN_TOKEN:-}" ] || die "STALWART_ADMIN_TOKEN required for blob migration."
-	[ -n "${BUCKET_ACCESS_KEY_ID:-}" ] || die "BUCKET_ACCESS_KEY_ID is required for S3 BlobStore."
-	[ -n "${BUCKET_SECRET_ACCESS_KEY:-}" ] || die "BUCKET_SECRET_ACCESS_KEY is required for S3 BlobStore."
-	s3_json="$(blobstore_s3_json)"
-	stalwart_url="$(migrate_cli_url)"
-	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-		update BlobStore --json "$s3_json" \
-		|| die "Could not set BlobStore to S3."
-	stalwart-cli --url "$stalwart_url" --api-key "$STALWART_ADMIN_TOKEN" \
-		create Action/ReloadSettings >/dev/null 2>&1 || true
-	sleep 2
-	log info "BlobStore set to S3 (bucket=${BUCKET}; endpoint=${BUCKET_ENDPOINT})."
-}
-
-migrate_blobs_to_fs() {
-	EXPORT_DIR="${BLOB_EXPORT_DIR:-/tmp/stalwart-blob-export-fs}"
-	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
-	CONFIG=/etc/stalwart/config.json
-
-	prepare_blob_volume
-
-	# Export reads the configured BlobStore backend. Blobs must be exported from Postgres.
-	start_migrate_stalwart
-	blobstore_set_default
-	stop_migrate_stalwart
-
-	rm -rf "$EXPORT_DIR"
-	mkdir -p "$EXPORT_DIR"
-
-	log info "Exporting blob family from Postgres (EXPORT_TYPES=blob)..."
-	if ! run_as_stalwart env EXPORT_TYPES=blob /usr/local/bin/stalwart --config "$CONFIG" --export "$EXPORT_DIR"; then
-		die "Blob export failed."
-	fi
-
-	export_size="$(du -sh "$EXPORT_DIR" | awk '{print $1}')"
-	if ! find "$EXPORT_DIR" -type f 2>/dev/null | head -n 1 | grep -q .; then
-		die "Blob export directory is empty; nothing to migrate."
-	fi
-
-	log info "Exported blob dump (${export_size}). Switching BlobStore to FileSystem before import..."
-	start_migrate_stalwart
-	blobstore_set_filesystem
-	stop_migrate_stalwart
-
-	log info "Importing blobs into volume at ${BLOB_FS_PATH}..."
-	if ! run_as_stalwart /usr/local/bin/stalwart --config "$CONFIG" --import "$EXPORT_DIR"; then
-		die "Blob import failed."
-	fi
-
-	rm -rf "$EXPORT_DIR"
-	log info "Blob migration finished (${export_size} imported to ${BLOB_FS_PATH})."
-}
-
-migrate_blobs_to_s3() {
-	BLOB_FS_PATH="${BLOB_FS_PATH:-/var/stalwart/blobs}"
-	SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" 2>/dev/null && pwd)"
-	SYNC_SCRIPT="${BLOB_S3_SYNC_SCRIPT:-}"
-
-	# Keep the volume mounted for this deploy so we can read FileSystem blobs.
-	prepare_blob_volume
-
-	if [ ! -d "$BLOB_FS_PATH" ]; then
-		die "Blob filesystem path missing: ${BLOB_FS_PATH}"
-	fi
-
-	file_count="$(find "$BLOB_FS_PATH" -type f 2>/dev/null | wc -l | tr -d ' ')"
-	if [ "${file_count:-0}" -lt 1 ]; then
-		die "No blob files under ${BLOB_FS_PATH}; refusing to flip BlobStore to S3."
-	fi
-
-	# Prefer the repo script when present (local/dev); fall back to embedded copy.
-	if [ -z "$SYNC_SCRIPT" ]; then
-		if [ -f /usr/local/share/stalwart/sync-fs-blobs-to-s3.py ]; then
-			SYNC_SCRIPT=/usr/local/share/stalwart/sync-fs-blobs-to-s3.py
-		elif [ -f "${SCRIPT_DIR}/scripts/sync-fs-blobs-to-s3.py" ]; then
-			SYNC_SCRIPT="${SCRIPT_DIR}/scripts/sync-fs-blobs-to-s3.py"
-		else
-			die "sync-fs-blobs-to-s3.py not found in image; rebuild with the script copied in."
+	# /api/schema 404s on this Stalwart build; seed the CLI cache so apply can run.
+	ipv4_loopback_url="http://127.0.0.1:${STALWART_HTTP_PORT}"
+	private_url="$(stalwart_management_url)"
+	public_url="${STALWART_PUBLIC_URL:-https://mail.solace.onl}"
+	for seed_url in "$ipv4_loopback_url" "$private_url" "$public_url"; do
+		seed_stalwart_cli_schema "$seed_url"
+	done
+	log info "Seeded stalwart-cli schema cache for plan apply."
+	i=0
+	max_attempts="${PLAN_APPLY_ATTEMPTS:-15}"
+	err_log="/tmp/stalwart-plan-apply.err"
+	: >"$err_log"
+	while [ "$i" -lt "$max_attempts" ]; do
+		applied=""
+		# Public URL is the proven CLI path (cached schema + JMAP). Local URLs reload this slot.
+		for try_url in "$public_url" "$private_url" "$ipv4_loopback_url"; do
+			if ! curl -fsSL --max-time 2 \
+				-H "Authorization: Bearer ${STALWART_ADMIN_TOKEN}" \
+				"${try_url}/jmap/session" >/dev/null 2>&1; then
+				continue
+			fi
+			if stalwart-cli --url "$try_url" --api-key "$STALWART_ADMIN_TOKEN" \
+				apply --file "$plan" 2>"$err_log"; then
+				applied="$try_url"
+				break
+			fi
+		done
+		if [ -n "$applied" ]; then
+			reload_stalwart_settings "$private_url" "$ipv4_loopback_url" "$public_url"
+			rm -f "$plan"
+			log info "Applied Stalwart config plan from ${plan_dir} via ${applied}."
+			return 0
 		fi
-	fi
-
-	# A previous failed --import attempt may have left BlobStore on S3. Point it
-	# back at the volume until the object copy finishes.
-	log info "Ensuring BlobStore is FileSystem during copy (source of truth: volume)..."
-	start_migrate_stalwart
-	blobstore_set_filesystem
-	stop_migrate_stalwart
-
-	fs_size="$(du -sh "$BLOB_FS_PATH" | awk '{print $1}')"
-	log info "Copying ${file_count} FileSystem blobs (${fs_size}) from ${BLOB_FS_PATH} to s3://${BUCKET}/..."
-	if ! python3 "$SYNC_SCRIPT" --src "$BLOB_FS_PATH"; then
-		die "FileSystem -> S3 blob copy failed."
-	fi
-
-	log info "Blob objects uploaded. Pointing BlobStore at S3..."
-	start_migrate_stalwart
-	blobstore_set_s3
-	stop_migrate_stalwart
-
-	log info "Blob migration to S3 finished (${file_count} files, ${fs_size} -> bucket=${BUCKET})."
-	log info "Next: unset BLOB_MIGRATE_TO_S3, detach volume stalwart-mail-volume-21uH, redeploy."
+		if [ "$i" -eq 0 ]; then
+			log warn "plan apply not ready yet: $(tr '\n' ' ' <"$err_log" 2>/dev/null || true)"
+		fi
+		i=$((i + 1))
+		sleep 2
+	done
+	tail -n 20 "$err_log" >&2 || true
+	rm -f "$plan"
+	die "Could not apply Stalwart config plan via ${public_url}, ${private_url}, or ${ipv4_loopback_url}."
 }
 
 wait_for_frpc_proxies() {
@@ -847,38 +704,13 @@ start_frpc() {
 	log info "frpc relay visitor pid=${FRPC_RELAY_PID}."
 	wait_for_relay_port
 	wait_for_frpc_proxies
+	apply_stalwart_plan
 	update_relay_route || die "Relay route update failed; refusing to open health gate."
 }
 
 # --- main ---
 
 [ -n "$PGHOST" ] && [ -n "$PGUSER" ] && [ -n "$PGPASSWORD" ] || die "Missing PostgreSQL credentials."
-
-if [ "${BLOB_MIGRATE_TO_FS:-}" = "true" ] && [ "${BLOB_MIGRATE_TO_S3:-}" = "true" ]; then
-	die "Set only one of BLOB_MIGRATE_TO_FS or BLOB_MIGRATE_TO_S3."
-fi
-
-if [ "${BLOB_MIGRATE_TO_FS:-}" = "true" ]; then
-	write_store_config
-	start_migrate_health_server
-	migrate_blobs_to_fs || die "Blob migration to filesystem failed."
-	log info "Blob migration complete. Unset BLOB_MIGRATE_TO_FS and redeploy to resume normal service."
-	while kill -0 "$MIGRATE_HEALTH_PID" 2>/dev/null; do
-		sleep 60
-	done
-	die "Migrate health listener exited unexpectedly."
-fi
-
-if [ "${BLOB_MIGRATE_TO_S3:-}" = "true" ]; then
-	write_store_config
-	start_migrate_health_server
-	migrate_blobs_to_s3 || die "Blob migration to S3 failed."
-	log info "Blob migration to S3 complete. Unset BLOB_MIGRATE_TO_S3, detach the blobs volume, and redeploy."
-	while kill -0 "$MIGRATE_HEALTH_PID" 2>/dev/null; do
-		sleep 60
-	done
-	die "Migrate health listener exited unexpectedly."
-fi
 
 [ -n "${FRPS_ADDR:-}" ] && [ -n "${FRPC_TOKEN:-}" ] || die "FRPS_ADDR and FRPC_TOKEN are required."
 

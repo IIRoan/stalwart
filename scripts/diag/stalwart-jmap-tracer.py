@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""Enable/disable JMAP debug tracing and profile slow mailbox loads.
-
-Client-side profiler (run any time):
-  python scripts/jmap-mailbox-profile.py --with-bodies
-
-Server-side tracing (already enabled on production):
-  python scripts/stalwart-jmap-tracer.py status
-  python scripts/stalwart-jmap-tracer.py tail
-  railway ssh -s stalwart-mail tail -f /var/log/stalwart/stalwart.log.$(date -u +%F)
-"""
+"""Enable/disable JMAP debug tracing and profile slow mailbox loads."""
 from __future__ import annotations
 
 import argparse
@@ -18,8 +9,7 @@ import urllib.request
 from pathlib import Path
 
 TRACER_ID = "jmap-debug"
-# Stalwart's Tracer.events only accepts {} (filter all or none via eventsPolicy).
-# debug level + exclude nothing => jmap.method-call, http.request-url, limit.*, store.* at debug+.
+# Tracer.events only accepts {} (include-all vs exclude via eventsPolicy).
 
 
 def load_env() -> dict[str, str]:

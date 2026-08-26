@@ -1,6 +1,15 @@
 .env
 .local-certs/
 
+# npm (Railway IaC eval only; not a Node app)
+node_modules/
+package.json
+package-lock.json
+npm-debug.log*
+.npm
+.yarn
+.pnp.*
+
 # Python
 __pycache__/
 *.py[cod]

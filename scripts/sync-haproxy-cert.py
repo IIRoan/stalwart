@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""Sync Stalwart's ACME certificate into the VPS HAProxy PEM for :443.
-
-HAProxy terminates HTTPS with /etc/haproxy/certs/mail.solace.onl.pem.
-Stalwart renews its own certs via ACME (Dns01 + Cloudflare). This script
-copies the newest matching Stalwart cert+key onto the VPS and reloads HAProxy.
-
-Typical flow (GitHub Actions):
-  1. Probe https://mail.solace.onl and read notAfter
-  2. If expiry is within RENEW_BEFORE_DAYS (default 14), export from Postgres
-  3. SCP the PEM and reload HAProxy over SSH
-
-Env:
-  STALWART_DATABASE_URL   Postgres URL for the Stalwart store (required to export)
-  VPS_SSH_HOST            default: mail.solace.onl
-  VPS_SSH_USER            default: gh-cert-sync
-  VPS_SSH_PORT            default: 22
-  VPS_SSH_PRIVATE_KEY     PEM private key contents (required to deploy)
-  CERT_HOST               default: mail.solace.onl
-  RENEW_BEFORE_DAYS       default: 14
-"""
+"""Sync Stalwart's ACME certificate into the VPS HAProxy PEM for :443."""
 
 from __future__ import annotations
 
@@ -159,8 +140,7 @@ def export_pem_from_stalwart_db(database_url: str, hostname: str) -> str:
     candidates: list[tuple[datetime, int, str]] = []
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
-            # Stalwart stores registry objects in single-letter KV tables.
-            # Certificate PEMs (leaf + chain + key) live in table `s`.
+            # Certificate PEMs live in Stalwart KV table `s`.
             cur.execute(
                 """
                 SELECT v
@@ -195,8 +175,7 @@ def export_pem_from_stalwart_db(database_url: str, hostname: str) -> str:
             f"no valid Stalwart certificate containing {hostname} found in Postgres"
         )
 
-    # Prefer the newest expiry cohort, then the broadest SAN set
-    # (mail + autoconfig/autodiscover/mta-sts/apex beats mail-only).
+    # Prefer the newest expiry, then the broadest SAN set.
     max_expiry = max(item[0] for item in candidates)
     fresh = [
         item

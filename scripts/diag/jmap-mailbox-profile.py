@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Profile JMAP mailbox load like the web UI — per-method timings and errors.
-
-Usage:
-  python scripts/jmap-mailbox-profile.py
-  python scripts/jmap-mailbox-profile.py --account n --mailbox a --limit 50
-  python scripts/jmap-mailbox-profile.py --user-token "$USER_TOKEN" --with-bodies
-  python scripts/jmap-mailbox-profile.py --parallel   # mimic browser concurrent calls
-"""
+"""Profile JMAP mailbox load like the web UI — per-method timings and errors."""
 from __future__ import annotations
 
 import argparse
@@ -238,7 +231,7 @@ def profile_mailbox_load(
             timeout=300,
         )
 
-    # Batched request similar to a single browser POST (sequential methods in one HTTP call).
+    # Batched request similar to a single browser POST.
     batch_calls = [
         ["Mailbox/get", {"accountId": account_id, "ids": None}, "bm"],
         [

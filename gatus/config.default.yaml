@@ -130,8 +130,7 @@ ui:
   alerts:
     - type: discord
 
-# Shared Prometheus scrape target (auth injected at boot).
-# Scraped via slot-manager so HAProxy never round-robins to the warming slot during cutover.
+# Prometheus scrape via slot-manager so HAProxy never hits the warming slot.
 .prometheus: &prometheus
   <<: *discord-alerts
   url: https://mail.solace.onl/slot-manager/metrics/prometheus
@@ -267,9 +266,7 @@ endpoints:
     group: Stalwart Metrics
     interval: 120s
     conditions:
-      # After Stalwart 0.16.12, zero-valued event counters are not exported.
-      # Require store I/O metrics (proves BlobStore/DataStore are live) and treat
-      # known error counters as unhealthy only when they appear (value > 0).
+      # Store I/O must be present; error counters are unhealthy only when exported (>0).
       - "[STATUS] == 200"
       - "[BODY] == pat(*store_blob_read*)"
       - "[BODY] == pat(*store_data_write*)"

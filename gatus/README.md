@@ -26,14 +26,7 @@ primary). Theme follows the browser `prefers-color-scheme` (and the in-page togg
 | **Gatus** | HTTP endpoints + Prometheus scrape shape | Discord (`DISCORD_WEBHOOK_URL`) after 2 failures / 2 recoveries |
 | **Stalwart Enterprise Alerts** | Live metric expressions (S3/store errors, SMTP concurrency, queue backlog, …) | Email + `telemetry.alert` → WebHook → `https://status.solace.onl/hooks/stalwart` → same Discord |
 
-Apply / refresh Stalwart alerts (idempotent):
-
-```bash
-export STALWART_ADMIN_TOKEN=…
-export STALWART_WEBHOOK_BEARER=…   # same value as on the Monitoring service
-export STALWART_ALERT_TO=you@solace.onl   # optional; default admin@solace.onl
-python3 scripts/apply-stalwart-alerts.py
-```
+Alerts live in [`stalwart/plan/40-integrations.ndjson`](../stalwart/plan/40-integrations.ndjson) and apply on Railway boot. Set `STALWART_WEBHOOK_BEARER` on **stalwart-mail** to the same value as on this Monitoring service.
 
 The bridge rejects unauthenticated posts. Keep `STALWART_WEBHOOK_BEARER` out of git.
 

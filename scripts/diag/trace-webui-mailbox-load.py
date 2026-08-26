@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce the web UI mailbox load JMAP call and break down server vs client time.
-
-Mimics getMailboxMessages: Email/query + Email/get with bodyValues for ~44-50 msgs.
-"""
+"""Reproduce the web UI mailbox load JMAP call and break down server vs client time."""
 from __future__ import annotations
 
 import json
@@ -38,7 +35,7 @@ def main() -> int:
     session_ms = (time.perf_counter() - t0) * 1000
     api = session["apiUrl"]
 
-    # Same shape as web UI: query then get with full properties + body fetch.
+    # Same shape as the web UI: query then get with body fetch.
     body = {
         "using": [
             "urn:ietf:params:jmap:core",

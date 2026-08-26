@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Install a PEM (private key + leaf + chain) for HAProxy TLS on :443.
-# Usage:
-#   sudo ./vps/install-haproxy-cert.sh /path/to/mail.solace.onl.pem
+# Install a PEM (key + leaf + chain) for HAProxy TLS on :443.
 set -euo pipefail
 
 PEM_SRC="${1:-}"

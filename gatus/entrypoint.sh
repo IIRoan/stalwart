@@ -1,6 +1,5 @@
 #!/bin/sh
-# Railway entrypoint for Solace Gatus (status.solace.onl).
-# Public PORT is a thin proxy: Gatus on :8081, Stalwart→Discord bridge on /hooks/stalwart.
+# Railway entrypoint: Gatus on :8081, public PORT proxies Gatus plus /hooks/stalwart.
 set -eu
 
 mkdir -p /data
@@ -118,10 +117,7 @@ fi
 
 append_vps_ssh_endpoints
 
-# Gatus binds internally; the public PORT is the Discord bridge + reverse proxy.
-# Bind PORT immediately so Railway/Docker healthchecks are not connection-refused
-# while Gatus is still starting. /health is proxied; 502s during boot are covered
-# by HEALTHCHECK start-period.
+# Bind public PORT immediately so healthchecks are not connection-refused during Gatus boot.
 export GATUS_CONFIG_PATH="${GATUS_CONFIG_PATH:-/data/config.yaml}"
 export GATUS_INTERNAL_PORT
 export PORT="${GATUS_INTERNAL_PORT}"

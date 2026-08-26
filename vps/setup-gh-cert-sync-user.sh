@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
 # Bootstrap a least-privilege SSH user for the GitHub HAProxy cert-sync Action.
-#
-# Run once on the mail VPS as root:
-#   curl -fsSL … | bash
-#   # or from a repo checkout:
-#   sudo ./vps/setup-gh-cert-sync-user.sh
-#
-# Prints the private key to stdout (copy into GitHub Environment secret
-# VPS_SSH_PRIVATE_KEY). Also writes it to a root-only file you should delete
-# after saving the secret.
 set -euo pipefail
 
 if [[ "$(id -u)" -ne 0 ]]; then

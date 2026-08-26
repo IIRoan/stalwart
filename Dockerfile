@@ -2,7 +2,7 @@ FROM stalwartlabs/stalwart:v0.16.17
 
 ARG FRPC_VERSION=0.69.1
 ARG STALWART_CLI_VERSION=1.0.12
-ARG BUILD_TIMESTAMP=2026-08-12-stalwart-0.16.17-s3sync2
+ARG BUILD_TIMESTAMP=2026-08-26-plan-alert-metrics
 
 USER root
 
@@ -23,10 +23,11 @@ RUN apt-get update \
     && chown -R stalwart:stalwart /var/log/stalwart /etc/stalwart /var/stalwart/blobs /usr/local/share/stalwart
 
 COPY railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
-COPY scripts/sync-fs-blobs-to-s3.py /usr/local/share/stalwart/sync-fs-blobs-to-s3.py
+COPY stalwart/plan /usr/local/share/stalwart/plan
+COPY stalwart/cli-schema.json /usr/local/share/stalwart/cli-schema.json
+COPY stalwart/cli-schema.latest /usr/local/share/stalwart/cli-schema.latest
 RUN sed -i 's/\r$//' /usr/local/bin/railway-entrypoint.sh \
     && chmod 755 /usr/local/bin/railway-entrypoint.sh \
-    && chmod 755 /usr/local/share/stalwart/sync-fs-blobs-to-s3.py \
     && chown stalwart:stalwart /usr/local/bin/railway-entrypoint.sh \
     && chown -R stalwart:stalwart /usr/local/share/stalwart
 

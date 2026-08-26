@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Front Gatus and forward Stalwart telemetry.alert webhooks to Discord.
-
-Listens on PORT. Proxies everything except POST /hooks/stalwart to Gatus on
-GATUS_INTERNAL_PORT. Stalwart posts {"events":[...]} with type telemetry.alert;
-Discord expects embeds/content — this bridge translates.
-"""
+"""Front Gatus and forward Stalwart telemetry.alert webhooks to Discord."""
 from __future__ import annotations
 
 import json
