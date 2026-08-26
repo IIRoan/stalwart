@@ -165,7 +165,6 @@ Railway probes `GET /healthz/ready` on `PORT` (8090). Healthcheck, overlap, and 
 | `PORT` | yes | Set to `8090` — Railway healthcheck port |
 | `PGHOST`, `PGPASSWORD`, etc. | yes | PostgreSQL (Railway plugin) |
 | `BUCKET` / `BUCKET_*` | yes | Railway bucket refs for S3 BlobStore |
-| `STALWART_WEBHOOK_BEARER` | no | Bearer for Discord alert webhook (`status.solace.onl/hooks/stalwart`) |
 | `STALWART_MAIL_INGEST_WEBHOOK_SECRET` | no | HMAC for Solace `message-ingest.ham` webhook (omit from plan if unset; live HMAC is kept) |
 | `FRPC_SLOT` | no | `blue`, `green`, or `auto` (default) |
 | `STALWART_HTTP_PORT` | no | Stalwart HTTP/JMAP port (default `8080`) |
@@ -177,7 +176,7 @@ Use the **private** Postgres hostname (`*.railway.internal`). Message bodies liv
 
 ## Status page
 
-Uptime monitoring: [`gatus/`](gatus/). Gatus Discord alerts cover endpoint/scrape failures. Stalwart Enterprise Alerts (in `stalwart/plan/40-integrations.ndjson`) cover live counters.
+Uptime monitoring: [`gatus/`](gatus/). Discord downtime alerts are Gatus-only (`DISCORD_WEBHOOK_URL`). Stalwart Enterprise Alerts in `stalwart/plan/40-integrations.ndjson` email `admin@solace.onl` for live counters.
 
 ## VPS
 

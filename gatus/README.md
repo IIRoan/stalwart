@@ -16,19 +16,16 @@ primary). Theme follows the browser `prefers-color-scheme` (and the in-page togg
 | `prometheus_user` | yes | Stalwart Prometheus basic auth (WebUI) |
 | `prometheus_password` | yes | Stalwart Prometheus basic auth |
 | `SLOT_MANAGER_TOKEN` | yes | Bearer token for `/slot-manager/status` |
-| `DISCORD_WEBHOOK_URL` | yes | Discord webhook for Gatus downtime + Stalwart metric alerts |
-| `STALWART_WEBHOOK_BEARER` | yes* | Shared Bearer for `POST /hooks/stalwart` (*required for Enterprise alert → Discord) |
+| `DISCORD_WEBHOOK_URL` | yes | Discord webhook for Gatus downtime and scrape failures |
 
 ## Alerting (two layers)
 
 | Layer | Watches | Notifies |
 |-------|---------|----------|
 | **Gatus** | HTTP endpoints + Prometheus scrape shape | Discord (`DISCORD_WEBHOOK_URL`) after 2 failures / 2 recoveries |
-| **Stalwart Enterprise Alerts** | Live metric expressions (S3/store errors, SMTP concurrency, queue backlog, …) | Email + `telemetry.alert` → WebHook → `https://status.solace.onl/hooks/stalwart` → same Discord |
+| **Stalwart Enterprise Alerts** | Live metric expressions (S3/store errors, SMTP concurrency, queue backlog, …) | Email to `admin@solace.onl` |
 
-Alerts live in [`stalwart/plan/40-integrations.ndjson`](../stalwart/plan/40-integrations.ndjson) and apply on Railway boot. Set `STALWART_WEBHOOK_BEARER` on **stalwart-mail** to the same value as on this Monitoring service.
-
-The bridge rejects unauthenticated posts. Keep `STALWART_WEBHOOK_BEARER` out of git.
+Do not point a Stalwart WebHook at `DISCORD_WEBHOOK_URL`. Discord expects its own JSON body; Stalwart event payloads are a different shape. Discord for this stack is Gatus-only.
 
 ## Monitors
 
@@ -59,7 +56,8 @@ Enable Prometheus in the Stalwart WebUI and set `prometheus_user` / `prometheus_
 | `stalwart-error-counters` | Store I/O present; fails if unexpected/S3/SMTP-concurrency/calendar error counters appear |
 
 These verify that metric families are being exported. Counter **values** and threshold
-expressions are handled by **Stalwart Enterprise Alerts** (email + Discord via the bridge).
+expressions are handled by **Stalwart Enterprise Alerts** (email). Gatus Discord-alerts if
+those error counters appear on the scrape (`stalwart-error-counters`).
 Grafana ([dashboard #23498](https://grafana.com/grafana/dashboards/23498-service-stalwart/))
 remains useful for rate graphs.
 
@@ -74,17 +72,7 @@ docker run --rm -p 8080:8080 \
   -e prometheus_password=secret \
   -e SLOT_MANAGER_TOKEN=your-token \
   -e DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... \
-  -e STALWART_WEBHOOK_BEARER=dev-shared-secret \
   solace-gatus
-```
-
-Smoke the bridge:
-
-```bash
-curl -sS -X POST http://127.0.0.1:8080/hooks/stalwart \
-  -H "Authorization: Bearer dev-shared-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"events":[{"type":"telemetry.alert","createdAt":"2026-01-01T00:00:00Z","data":{"message":"test"}}]}'
 ```
 
 ## Optional
