@@ -35,7 +35,7 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 ### HAProxy
 
 - **Role:** Public TCP/HTTP edge; TLS on :443; PROXY v2 to frps mail backends.
-- **Ports:** 25, 80 (HTTPS redirect), 465, 993, 443. Public `/admin` and `/api` (except `/api/discover`) return 404; admin UI is on `127.0.0.1:8080` via SSH tunnel.
+- **Ports:** 25, 80 (HTTPS redirect), 465, 993, 443. Public `/admin` and `/api` return 404 except `/api/discover` and `/api/auth` (Solace mailbox login). Admin UI is on `127.0.0.1:8080` via SSH tunnel.
 - **Repo:** `vps/haproxy.cfg` → `/etc/haproxy/haproxy.cfg`
 - **Active slot:** `/etc/haproxy/stalwart-active-slot` (`blue` or `green`)
 - **TLS cert:** `/etc/haproxy/certs/mail.solace.onl.pem` (HAProxy terminates HTTPS). This file is **separate** from Stalwart’s ACME-managed certificates (used for SMTP STARTTLS on :25). Renewing Stalwart ACME does **not** update HAProxy.
