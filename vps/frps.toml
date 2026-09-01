@@ -7,8 +7,8 @@ bindPort = 7000
 proxyBindAddr = "127.0.0.1"
 
 # Dashboard for debugging (localhost only)
-webServerAddr = "127.0.0.1"
-webServerPort = 7500
+webServer.addr = "127.0.0.1"
+webServer.port = 7500
 
 [auth]
 method = "token"
