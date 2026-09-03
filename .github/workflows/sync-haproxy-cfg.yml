@@ -1,7 +1,5 @@
 name: Sync HAProxy config
 
-# Install vps/haproxy.cfg on the mail VPS (gh-cert-sync sudo install + reload).
-
 on:
   workflow_dispatch:
 
@@ -24,12 +22,6 @@ jobs:
       && github.event_name == 'workflow_dispatch'
       && github.ref == 'refs/heads/main'
     steps:
-      - name: Assert trusted ref
-        run: |
-          set -euo pipefail
-          test "${GITHUB_REPOSITORY}" = "IIRoan/stalwart"
-          test "${GITHUB_REF}" = "refs/heads/main"
-
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -42,18 +34,26 @@ jobs:
           VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
           VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
           VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+          ADMIN_ALLOW_IP: ${{ secrets.ADMIN_ALLOW_IP }}
         run: |
           set -euo pipefail
-          : "${VPS_SSH_PRIVATE_KEY:?set Environment secret VPS_SSH_PRIVATE_KEY on mail-vps}"
+          : "${VPS_SSH_PRIVATE_KEY:?missing VPS_SSH_PRIVATE_KEY}"
+          : "${ADMIN_ALLOW_IP:?missing ADMIN_ALLOW_IP}"
+          if ! printf '%s' "$ADMIN_ALLOW_IP" | grep -Eq '^[0-9a-fA-F.:/]+$'; then
+            echo "ADMIN_ALLOW_IP has unexpected characters" >&2
+            exit 1
+          fi
           HOST="${VPS_SSH_HOST:-mail.solace.onl}"
           USER="${VPS_SSH_USER:-gh-cert-sync}"
           PORT="${VPS_SSH_PORT:-22}"
           echo "Deploy target: ${USER}@${HOST}:${PORT}"
 
           KEY="$(mktemp)"
-          trap 'rm -f "$KEY"' EXIT
+          ALLOW="$(mktemp)"
+          trap 'rm -f "$KEY" "$ALLOW"' EXIT
           printf '%s\n' "$VPS_SSH_PRIVATE_KEY" >"$KEY"
-          chmod 600 "$KEY"
+          printf '%s\n' "$ADMIN_ALLOW_IP" >"$ALLOW"
+          chmod 600 "$KEY" "$ALLOW"
 
           SSH=(ssh -i "$KEY" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes
                -o StrictHostKeyChecking=accept-new)
@@ -61,11 +61,13 @@ jobs:
                -o StrictHostKeyChecking=accept-new)
 
           "${SCP[@]}" vps/haproxy.cfg "${USER}@${HOST}:/tmp/haproxy.cfg.new"
+          "${SCP[@]}" "$ALLOW" "${USER}@${HOST}:/tmp/admin-allow.lst.new"
           "${SSH[@]}" "${USER}@${HOST}" bash -s <<'REMOTE'
           set -euo pipefail
           sudo -n /usr/bin/install -m 644 /tmp/haproxy.cfg.new /etc/haproxy/haproxy.cfg
+          sudo -n /usr/bin/install -m 644 /tmp/admin-allow.lst.new /etc/haproxy/admin-allow.lst
           sudo -n /usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg
           sudo -n /bin/systemctl reload haproxy
-          rm -f /tmp/haproxy.cfg.new
-          echo "HAProxy config installed and reloaded."
+          rm -f /tmp/haproxy.cfg.new /tmp/admin-allow.lst.new
+          echo "HAProxy config + admin allowlist installed and reloaded."
           REMOTE
