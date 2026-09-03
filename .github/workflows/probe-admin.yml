@@ -1,0 +1,17 @@
+name: Probe admin
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe
+        run: |
+          set -euo pipefail
+          echo "runner ip=$(curl -fsS https://api.ipify.org)"
+          code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 15 https://mail.solace.onl/admin/)
+          echo "admin_code=$code"
+          head -c 120 /tmp/out; echo
+          test "$code" = "404"
