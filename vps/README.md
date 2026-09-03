@@ -35,7 +35,7 @@ All systemd units should be enabled (`systemctl enable`) for boot.
 ### HAProxy
 
 - **Role:** Public TCP/HTTP edge; TLS on :443; PROXY v2 to frps mail backends.
-- **Ports:** 25, 80 (HTTPS redirect), 465, 993, 443. Public `/admin` and `/api` return 404 except `/api/discover` and `/api/auth` (Solace mailbox login). Admin UI is on `127.0.0.1:8080` via SSH tunnel.
+- **Ports:** 25, 80 (HTTPS redirect), 465, 993, 443. Public `/admin` is allowlisted to operator egress (`77.163.32.74` in `haproxy.cfg`); `/api` returns 404 except `/api/discover` and `/api/auth` (Solace mailbox login). Loopback Admin UI remains on `127.0.0.1:8080` via SSH tunnel.
 - **Repo:** `vps/haproxy.cfg` → `/etc/haproxy/haproxy.cfg`
 - **Active slot:** `/etc/haproxy/stalwart-active-slot` (`blue` or `green`)
 - **TLS cert:** `/etc/haproxy/certs/mail.solace.onl.pem` (HAProxy terminates HTTPS). This file is **separate** from Stalwart’s ACME-managed certificates (used for SMTP STARTTLS on :25). Renewing Stalwart ACME does **not** update HAProxy.
@@ -107,7 +107,7 @@ deploys. See [README.md](../README.md) for the full sequence.
 
 ## Operations
 
-Admin UI (after the public `/admin` 404):
+Admin UI: from the allowlisted IP open `https://mail.solace.onl/admin/`. Otherwise tunnel:
 
 ```bash
 ssh -N -L 8080:127.0.0.1:8080 USER@mail.solace.onl

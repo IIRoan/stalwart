@@ -69,7 +69,7 @@ Failing apply fails the boot.
 
 DKIM keys rotate automatically (`dkimManagement: Automatic`). Stalwart does **not** continuously reconcile Cloudflare; after a new selector, run `scripts/stalwart-plan.sh dns-publish`. Do not flip MTA-STS to `enforce` until TLS-RPT reports arrive.
 
-Admin UI is loopback-only. Tunnel: `ssh -N -L 8080:127.0.0.1:8080 USER@mail.solace.onl` then `http://127.0.0.1:8080/admin/`.
+Admin UI is allowlisted on public HTTPS (`77.163.32.74` in `vps/haproxy.cfg` + Stalwart `allowedEndpoints`). Tunnel fallback: `ssh -N -L 8080:127.0.0.1:8080 USER@mail.solace.onl` then `http://127.0.0.1:8080/admin/`.
 
 ## Inbound mail (Internet → Stalwart)
 
